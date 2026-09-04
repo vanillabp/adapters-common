@@ -28,6 +28,7 @@ import io.vanillabp.integration.test.TestPhaseTwoOutboxConfiguration;
 import io.vanillabp.integration.test.TestTransactionRunnerConfiguration;
 import io.vanillabp.integration.test.WorkflowModuleConfiguration;
 import io.vanillabp.integration.test.deployment.DeploymentTest;
+import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.integration.workflowmodule.WorkflowModuleAutoConfiguration;
 import io.vanillabp.spi.process.ProcessService;
@@ -42,8 +43,11 @@ import io.vanillabp.spi.process.ProcessService;
  * annotation of its own, and one belongs to a profile which is not active. The last one
  * is the case the discovery deliberately says nothing about - a class annotated
  * {@code @WorkflowService} without a bean is indistinguishable from one another profile
- * brings - and the boot still ends, because the wiring validation compares the DEPLOYED
- * model against the handlers of this run.
+ * brings - and its BPMN process is deployed with nothing to serve it. The application
+ * starts and the deployment reports the process, which is what a process no workflow
+ * service claims costs; see
+ * {@link io.vanillabp.integration.test.deployment.UnclaimedBpmnProcessTest} for the file
+ * which carries such a process on purpose.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class WorkflowServiceDiscoveryTest {
@@ -148,7 +152,8 @@ public class WorkflowServiceDiscoveryTest {
   }
 
   @Test
-  public void aWorkflowServiceOfAnInactiveProfileEndsTheBootNamingTheTask() {
+  public void aWorkflowServiceOfAnInactiveProfileLeavesItsProcessUnclaimed(
+      final CapturedOutput output) {
 
     // with the profile: the handler of 'processTask' is a bean, so the model deployed
     // is completely wired
@@ -162,23 +167,27 @@ public class WorkflowServiceDiscoveryTest {
 
     }
 
-    // without it: the class is on the classpath but no bean of it exists. Nothing warns
-    // about the annotated class - the deployed model is what reports the gap
-    final var failure = Assertions.assertThrows(
-        RuntimeException.class,
-        () -> application(ProfiledWorkflowService.class, DummyProcessWithOneTask.class)
-            .run()
-            .close());
+    // what the boot above already wrote - only the output of the second one answers
+    // the question
+    final var writtenBeforeThisBoot = output.getAll().length();
 
-    final var message = rootMessage(failure);
-    Assertions.assertTrue(
-        message.contains("Task wiring of BPMN process 'DummyProcess' of workflow module 'test-module'"),
-        "unexpected message: "
-            + message);
-    Assertions.assertTrue(
-        message.contains("'Activity_Process'"),
-        "unexpected message: "
-            + message);
+    // without the profile: the class is on the classpath but no bean of it exists.
+    // Nothing warns about the annotated class - the DEPLOYED model is what reports the
+    // gap, as the process which nothing serves
+    try (var context = application(ProfiledWorkflowService.class, DummyProcessWithOneTask.class)
+        .run()) {
+
+      final var captured = output.getAll().substring(writtenBeforeThisBoot);
+      Assertions.assertTrue(
+          captured.contains("process 'DummyProcess' of file 'DummyProcess.bpmn'"),
+          "unexpected output: "
+              + captured);
+      Assertions.assertTrue(
+          captured.contains("not get past its first task"),
+          "unexpected output: "
+              + captured);
+
+    }
 
   }
 
@@ -302,17 +311,6 @@ public class WorkflowServiceDiscoveryTest {
         .stream()
         .map(clazz -> clazz.getName().replace('.', '/'))
         .toList();
-
-  }
-
-  private static String rootMessage(
-      final Throwable failure) {
-
-    var cause = failure;
-    while (cause.getCause() != null) {
-      cause = cause.getCause();
-    }
-    return cause.getMessage();
 
   }
 

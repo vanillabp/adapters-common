@@ -188,9 +188,22 @@ public class DeploymentService implements AdapterDeploymentService<Object, Objec
 
     log.info("Dummy-Adapter[{}]: Reading BPMN '{}' for {}", adapterId, filename, workflowModuleId);
 
-    // the BPMN process id is derived from the filename (extension stripped) so
-    // tests can distinguish the files of a workflow module - parity with the
-    // Quarkus dummy adapter
+    // a test may declare what the file holds, which is how a file with a SECOND
+    // executable process is modelled; otherwise the BPMN process id is derived from
+    // the filename (extension stripped) so tests can distinguish the files of a
+    // workflow module - parity with the Quarkus dummy adapter
+    final var declaredProcesses = taskWiringSource
+        .stream()
+        .map(source -> source.executableProcessesOf(adapterId, workflowModuleId, filename))
+        .filter(processes -> !processes.isEmpty())
+        .findFirst()
+        .orElse(List.of());
+    if (!declaredProcesses.isEmpty()) {
+      return declaredProcesses
+          .stream()
+          .map(bpmnProcessId -> Map.entry(bpmnProcessId, new Object()))
+          .toList();
+    }
     final var bpmnProcessId = filename.endsWith(".bpmn")
         ? filename.substring(filename.lastIndexOf('/') + 1, filename.length() - ".bpmn".length())
         : filename;

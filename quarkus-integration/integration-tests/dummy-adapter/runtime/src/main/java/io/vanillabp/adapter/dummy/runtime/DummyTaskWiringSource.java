@@ -1,6 +1,7 @@
 package io.vanillabp.adapter.dummy.runtime;
 
 import java.util.Collection;
+import java.util.List;
 
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 
@@ -29,5 +30,26 @@ public interface DummyTaskWiringSource {
       String adapterId,
       String workflowModuleId,
       String bpmnProcessId);
+
+  /**
+   * The executable BPMN processes the given file declares, as a real adapter reads them
+   * off the model. The default answers nothing, which keeps the dummy adapter's
+   * convention of one process per file, named after the file. A test needing a file with
+   * a SECOND executable process - what a modeller produces by drawing a called process
+   * next to the calling one - names both processes here.
+   *
+   * @param adapterId The adapter ID reading the file
+   * @param workflowModuleId The workflow module ID
+   * @param filename The BPMN file's name
+   * @return The executable BPMN process IDs of that file
+   */
+  default List<String> executableProcessesOf(
+      final String adapterId,
+      final String workflowModuleId,
+      final String filename) {
+
+    return List.of();
+
+  }
 
 }

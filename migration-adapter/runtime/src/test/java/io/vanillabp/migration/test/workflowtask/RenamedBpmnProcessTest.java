@@ -158,6 +158,28 @@ public class RenamedBpmnProcessTest {
   }
 
   /**
+   * A second workflow service of the module, serving the called process on its own. One of
+   * its methods names a task no model of that process carries, which is the defect the
+   * reverse wiring check exists for and has nothing to do with the rename next to it.
+   */
+  @WorkflowService(
+      workflowAggregateClass = Aggregate.class,
+      bpmnProcess = @BpmnProcess(bpmnProcessId = CALLED_ID))
+  public static class ShipmentServiceWithAnOrphanMethod {
+
+    @WorkflowTask(taskDefinition = "ship")
+    public void ship(
+        final Aggregate aggregate) {
+    }
+
+    @WorkflowTask(taskDefinition = "shipp")
+    public void shipTypo(
+        final Aggregate aggregate) {
+    }
+
+  }
+
+  /**
    * What a BPMS holds per BPMN process id, with every answer handed in by the test.
    */
   private static class CatalogStub implements ProcessVersionCatalog {
@@ -495,6 +517,61 @@ public class RenamedBpmnProcessTest {
         List.of(),
         askedAbout,
         "a workflow service waiting for a model which has not arrived says nothing about a rename");
+
+  }
+
+  @Test
+  @DisplayName("A process nobody claims next to a rename is reported without touching the kept method")
+  public void anUnclaimedProcessNextToARenameLeavesTheKeptMethodAlone() {
+
+    theApplicationDeclares(ServiceKeepingTheOldGeneration.class);
+    theAdapterDeployed(NEW_ID, "1");
+    // a BPMN file of the module carries a process nobody serves - it is collected, not
+    // validated, and the boot goes on to the module-level checks
+    registry
+        .validateTaskWiring(
+            MODULE,
+            "SomebodyElsesProcess",
+            List.of(new BpmnTaskSpec("Activity_1", "somebodyElsesTask")));
+
+    registry.registerVersionsOfProcessesNobodyDeployed(MODULE, ADAPTER, (
+        module,
+        process) -> catalog);
+    registry.validateNoUnwiredWorkflowTaskMethods(MODULE);
+
+    assertEquals(
+        List.of("SomebodyElsesProcess"),
+        List.copyOf(registry.bpmnProcessesWithoutWorkflowService(MODULE)),
+        "the old id is declared, so it is served rather than unclaimed");
+
+  }
+
+  @Test
+  @DisplayName("A method matching nothing is still reported while a rename is in the same module")
+  public void aMethodMatchingNothingIsReportedNextToARename() {
+
+    theApplicationDeclares(ServiceKeepingTheOldGeneration.class);
+    theApplicationDeclares(ShipmentServiceWithAnOrphanMethod.class);
+    theAdapterDeployed(NEW_ID, "1");
+    theAdapterDeployed(CALLED_ID, "1", new BpmnTaskSpec("Activity_ship", "ship"));
+    registry
+        .validateTaskWiring(
+            MODULE,
+            "SomebodyElsesProcess",
+            List.of(new BpmnTaskSpec("Activity_1", "somebodyElsesTask")));
+    registry.registerVersionsOfProcessesNobodyDeployed(MODULE, ADAPTER, (
+        module,
+        process) -> catalog);
+
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> registry.validateNoUnwiredWorkflowTaskMethods(MODULE));
+
+    assertTrue(exception.getMessage().contains("shipTypo"), exception.getMessage());
+    assertFalse(
+        exception.getMessage().contains("checkCredit"),
+        () -> "the method kept for the versions of the old id runs: "
+            + exception.getMessage());
 
   }
 

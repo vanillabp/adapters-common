@@ -697,11 +697,28 @@ reached the task.
    delivery has to carry, whether a task may stay open, which processes share an
    aggregate, which elements can put a second token into a workflow.
 
+   A process NO `@WorkflowService` class claims is the one case that call does not
+   validate. A BPMN file goes to the BPMS as a whole, so a process modelled next to the
+   one the application asked for is deployed with it, and the file may well belong to
+   somebody else: a called process a modeller drew alongside the calling one, or a
+   process which moved out of the application while its model stayed. Asking such a
+   process for `@WorkflowTask` methods ended the boot over a model the application cannot
+   change, and the message it wrote - add a workflow service for this process - is the
+   right sentence only where the application means to serve it. The registry collects the
+   process instead, and the deployment reports the module's unclaimed processes in one
+   WARN naming each process, its file and what it costs. Where a service DOES claim the
+   process, nothing changed: an unmatched task ends the boot as before, because that is a
+   defect the developer can fix in their own code.
+
    **What the core does on its own**, once the last adapter of a workflow module finished
    deploying: `validateNoUnwiredWorkflowTaskMethods(module)` - the other direction, every
    method matches a task somewhere in the module - and `resolveProcessVersions(module)`.
    Both are module-level and need nothing an adapter knows, so the core picks the moment
-   instead of asking every adapter author to remember it.
+   instead of asking every adapter author to remember it. The report about the unclaimed
+   processes runs in the same moment, from `bpmnProcessesWithoutWorkflowService(module)`,
+   next to the deployment's other startup reports. The reverse check stays exactly as
+   loud as it was: an unclaimed process is never compared against methods, so it can
+   neither excuse nor hide one.
    `registerDeployedVersion` stays with the adapter: only it knows which version its BPMS
    ended up with.
 

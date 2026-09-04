@@ -4,6 +4,42 @@ Documents changes that were necessary when upgrading major dependency versions,
 so the reasoning can be looked up later (e.g. when upgrading BPMS adapters or
 applications built on VanillaBP).
 
+## A BPMN process nobody serves no longer stops the boot (2026-09-04)
+
+A BPMN file goes to the BPMS as a whole, so a file which declares two executable processes
+deploys both. The wiring validation then asked BOTH of them for their `@WorkflowTask`
+methods, and the one no `@WorkflowService` class claims had none, so the application did
+not start. The message asked for a workflow service responsible for that BPMN process,
+which is the right sentence for a process the application means to serve and the wrong one
+for a process it does not: a called process a modeller drew next to the calling one, or a
+process which moved out of the application while its model stayed in the file.
+
+**Such an application boots now**, and the deployment reports the processes of the
+workflow module which no `@WorkflowService` class claims in one WARN, naming each process,
+the file it came from, what it costs (a workflow of it can be started and gets no further
+than its first task, because no `@WorkflowTask` method serves it) and the two ways out:
+write the workflow service, or take the process out of the file.
+
+**Where a workflow service DOES claim the process, nothing changed.** A task of it without
+a matching method ends the boot with the message it always had, and a `@WorkflowTask`
+method matching no task of any process of its module still ends it too. An unclaimed
+process is never compared against methods at all, so it can neither excuse nor hide one.
+
+**The case to know about is a Spring Boot application** whose `@WorkflowService` class is
+on the classpath but is no bean, because its profile is not active or nothing scanned its
+package. Its BPMN process is deployed with nothing to serve it, and until now the wiring
+validation ended the boot over it, which was the loudest symptom such a class had. That
+symptom is a WARN from now on: it names the process and the file, and the application runs.
+An application which relied on the failing boot to catch a scanning mistake has to read the
+report instead. Quarkus is not affected, it decides its bean set while it builds and refuses
+the build of an application whose workflow service is no bean, with a message of its own.
+
+An adapter needs no change. `WorkflowTaskWiring` gained one method with a default,
+`bpmnProcessesWithoutWorkflowService(module)`, which the core asks itself once a module
+finished deploying; an adapter neither implements nor calls it. What an adapter should keep
+doing is calling `validateTaskWiring` for every executable process of a file, the unclaimed
+ones included - that call is what makes the report complete.
+
 ## A renamed BPMN process is checked like every other one (2026-09-04)
 
 A workflow module may rename a BPMN process and keep serving the workflows which still run under

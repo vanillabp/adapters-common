@@ -85,6 +85,13 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
   private final Map<RegistryKey, RegistryEntry> entries = new ConcurrentHashMap<>();
 
   /**
+   * The BPMN processes an adapter wired although no <code>&#64;WorkflowService</code>
+   * class of the application claims them. A set, so the same process wired by a second
+   * adapter of the workflow module is reported once.
+   */
+  private final java.util.Set<RegistryKey> processesWithoutWorkflowService = ConcurrentHashMap.newKeySet();
+
+  /**
    * What the BPMS know about the deployed versions of the BPMN processes - needed to
    * place a version TAG named by a <code>version</code> attribute in the deployment
    * order. Shared by all three handler kinds, since all three annotations
@@ -390,13 +397,19 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
       final String bpmnProcessId,
       final Collection<BpmnTaskSpec> tasks) {
 
-    final var entry = entries.get(new RegistryKey(workflowModuleId, bpmnProcessId));
-    final var handlers = entry == null
-        ? List.<WorkflowTaskHandler>of()
-        : List.copyOf(entry.handlers);
-    if (entry != null) {
-      entry.wiringValidated = true;
+    final var key = new RegistryKey(workflowModuleId, bpmnProcessId);
+    final var entry = entries.get(key);
+    if (entry == null) {
+      // nobody claimed this process, so there is nothing to validate it against:
+      // asking for the @WorkflowTask methods of a process the application never said
+      // it serves would end the boot over a model somebody else owns. What it costs
+      // is reported once per workflow module by the deployment, see
+      // #bpmnProcessesWithoutWorkflowService
+      processesWithoutWorkflowService.add(key);
+      return;
     }
+    final var handlers = List.copyOf(entry.handlers);
+    entry.wiringValidated = true;
 
     // mark every matched handler as wired - the reverse direction (methods
     // matching no task of ANY process of the module) is validated per module via
@@ -421,30 +434,28 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
     final var message = new StringBuilder(
         "Task wiring of BPMN process '%s' of workflow module '%s' is incomplete!"
             .formatted(bpmnProcessId, workflowModuleId));
-    if (!unmatchedTasks.isEmpty()) {
-      final var serviceClasses = (entry == null) || entry.workflowServiceClasses.isEmpty()
-          ? "a @WorkflowService class responsible for this BPMN process"
-          : entry.workflowServiceClasses
-              .stream()
-              .map(Class::getName)
-              .collect(Collectors.joining("', '", "'", "'"));
-      message.append("\nBPMN tasks having no matching @WorkflowTask method:");
-      unmatchedTasks.forEach(task -> message.append(
-          """
+    // a registered process always has the class which registered it, so the message
+    // can name where the missing method belongs
+    final var serviceClasses = entry.workflowServiceClasses
+        .stream()
+        .map(Class::getName)
+        .collect(Collectors.joining("', '", "'", "'"));
+    message.append("\nBPMN tasks having no matching @WorkflowTask method:");
+    unmatchedTasks.forEach(task -> message.append(
+        """
 
-                - task '%s' (task definition '%s'): add a method annotated with @WorkflowTask named \
-              '%s' to %s, or annotate an existing method with @WorkflowTask(taskDefinition = "%s") \
-              or @WorkflowTask(id = "%s")."""
-              .formatted(
-                  task.activityId(),
-                  task.taskDefinition(),
-                  task.taskDefinition() != null
-                      ? task.taskDefinition()
-                      : task.activityId(),
-                  serviceClasses,
-                  task.taskDefinition(),
-                  task.activityId())));
-    }
+              - task '%s' (task definition '%s'): add a method annotated with @WorkflowTask named \
+            '%s' to %s, or annotate an existing method with @WorkflowTask(taskDefinition = "%s") \
+            or @WorkflowTask(id = "%s")."""
+            .formatted(
+                task.activityId(),
+                task.taskDefinition(),
+                task.taskDefinition() != null
+                    ? task.taskDefinition()
+                    : task.activityId(),
+                serviceClasses,
+                task.taskDefinition(),
+                task.activityId())));
     message.append("\nTasks of the BPMN process: ");
     message.append(tasks.isEmpty()
         ? "none"
@@ -461,6 +472,19 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
             .collect(Collectors.joining(", ")));
     message.append('.');
     throw new IllegalStateException(message.toString());
+
+  }
+
+  @Override
+  public Collection<String> bpmnProcessesWithoutWorkflowService(
+      final String workflowModuleId) {
+
+    return processesWithoutWorkflowService
+        .stream()
+        .filter(key -> key.workflowModuleId().equals(workflowModuleId))
+        .map(RegistryKey::bpmnProcessId)
+        .sorted()
+        .toList();
 
   }
 

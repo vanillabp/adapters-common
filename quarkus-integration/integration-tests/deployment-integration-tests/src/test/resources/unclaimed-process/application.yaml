@@ -1,0 +1,16 @@
+quarkus:
+  datasource:
+    db-kind: h2
+    jdbc:
+      url: jdbc:h2:mem:unclaimed-process;DB_CLOSE_DELAY=-1
+vanillabp:
+  prioritized-adapters:
+    - demo1
+  adapters:
+    demo1:
+      type: dummy
+  workflow-modules:
+    test-module:
+      adapters:
+        demo1:
+          resources-location: classpath:processes/unclaimed

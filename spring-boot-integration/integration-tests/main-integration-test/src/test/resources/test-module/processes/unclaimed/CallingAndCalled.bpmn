@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  One file, two executable processes: 'Calling' is the process the application serves,
+  'Called' is drawn next to it and served by nobody. The file is deployed as a whole, so
+  both processes reach the BPMS, and the boot reports the second one instead of ending.
+-->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Definitions_CallingAndCalled" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Calling" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_Calling">
+      <bpmn:outgoing>Flow_ToJuhu</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_ToJuhu" sourceRef="StartEvent_Calling" targetRef="Activity_Juhu" />
+    <bpmn:serviceTask id="Activity_Juhu">
+      <bpmn:incoming>Flow_ToJuhu</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToCall</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_ToCall" sourceRef="Activity_Juhu" targetRef="Activity_CallCalled" />
+    <bpmn:callActivity id="Activity_CallCalled" calledElement="Called">
+      <bpmn:incoming>Flow_ToCall</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEndCalling</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:sequenceFlow id="Flow_ToEndCalling" sourceRef="Activity_CallCalled" targetRef="EndEvent_Calling" />
+    <bpmn:endEvent id="EndEvent_Calling">
+      <bpmn:incoming>Flow_ToEndCalling</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmn:process id="Called" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_Called">
+      <bpmn:outgoing>Flow_ToCalledTask</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_ToCalledTask" sourceRef="StartEvent_Called" targetRef="Activity_Called" />
+    <bpmn:serviceTask id="Activity_Called">
+      <bpmn:incoming>Flow_ToCalledTask</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEndCalled</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_ToEndCalled" sourceRef="Activity_Called" targetRef="EndEvent_Called" />
+    <bpmn:endEvent id="EndEvent_Called">
+      <bpmn:incoming>Flow_ToEndCalled</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>
