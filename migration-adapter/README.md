@@ -699,7 +699,24 @@ while the application starts, by Quarkus while it is built - and
 superclass and not from an interface, so the platforms would not even read the same methods: Spring
 Boot sees the bean's class, Quarkus the interface its index reports. A subclass of an annotated
 class stays a workflow service, which is what `@Inherited` promises and what a declaration shared
-by several classes uses. They were one interface of thirty methods until it became clear that a
+by several classes uses: the class handed to the registry is that SUBCLASS on both platforms, so
+its methods, its BPMN process id and its workflow module are the ones in play (see decision 32 in
+the repository's DECISIONS.md).
+
+Two ways of writing a handler method are reported instead of served, and
+`HandlerMethodsNobodySees` builds that report, once per workflow service class, from here so both
+platforms write the same one. A `@WorkflowTask`, `@WorkflowStartedByBpms` or `@WorkflowEnded`
+method which is not public is not among the methods the scanners read, and an override which
+repeated none of the annotations replaced the annotated method with one carrying nothing, because
+Java never inherits a method annotation. Both look to the developer like a handler which is right
+there in their source, and both used to arrive as the wiring validation asking for a method that
+exists. It is a WARN rather than the end of the boot, since an application whose model carries the
+task ends its boot anyway, on the message about that task, and this is the sentence saying why the
+method was not found. Serving such a method by reflection was refused: from the moment VanillaBP
+lifts the visibility of a handler, which methods a class offers stops being the decision of
+whoever wrote the class.
+
+They were one interface of thirty methods until it became clear that a
 mandatory call an adapter can forget will be forgotten: Camunda 7 forgot the reverse
 wiring check for a year, and a typo in a task definition stayed silent until a workflow
 reached the task.

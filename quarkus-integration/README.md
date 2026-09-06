@@ -57,6 +57,15 @@ as possible at **build time**, following Quarkus' extension philosophy:
    build with a message naming the type and the classes which brought it in: an interface
    would serve the methods declared in it, and Spring Boot would serve those of the
    implementing class.
+   For the same reason the build resolves `@Inherited` itself. The class the annotation sits
+   on is a DECLARATION, and the workflow services are the classes which serve it, so the
+   build walks from each declaration site down to the classes the index reports as its
+   subclasses and registers those (see decision 32 in the repository's DECISIONS.md). Each of
+   them brings its own workflow module, its own BPMN process id where the annotation names
+   none, and its own methods for the core to scan; the reflective registration a native image
+   gets covers the class and every superclass up to the declaration, because a handler the
+   class inherits is declared there. Abstract classes are left out, since CDI hands out no
+   instance of one, and a declaration whose whole family is abstract ends the build naming it.
 2. **Bean generation via Gizmo:** For each workflow aggregate a
    `ProcessService_<Aggregate>` CDI bean class extending `ProcessServiceBaseCdiBean<A>`
    is generated as bytecode at build time — the Quarkus counterpart of Spring's
@@ -108,7 +117,12 @@ as possible at **build time**, following Quarkus' extension philosophy:
    no session is guaranteed to be around.
 6. **Validation at build time:** `EnsureCollectedClassesAreBeansBuildStepProcessor`
    fails the build if collected classes (workflow services, persistence
-   implementations) are not actual CDI beans.
+   implementations) are not actual CDI beans. For a persistence implementation a bean of a
+   subclass counts, because VanillaBP only needs an instance to call the class' methods on.
+   For a workflow service it does not: the class is registered by its own name, and a subclass
+   of it is a different workflow service, so the item asks for a bean which IS that class
+   (`aBeanOfASubclassCounts`). That is what keeps the classes the build registers and the
+   classes it requires to be beans the same set.
 7. **Configuration binding:** the user-facing `vanillabp.*` tree is modeled ONCE in
    the platform-neutral core (`MigrationAdapterProperties`).
    `QuarkusMigrationAdapterProperties` stays a RUN_TIME `@ConfigMapping` (module

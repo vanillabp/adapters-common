@@ -339,7 +339,7 @@ public class ProcessServiceBuildStepProcessor {
    * workflow service, and the class the handler methods are read off is the SUBCLASS. Jandex
    * resolves no <code>&#64;Inherited</code>, so the walk down to the subclasses happens here,
    * where the index can still be asked - and it is the same reading Spring Boot arrives at by
-   * registering the class of the bean.
+   * registering the class of the bean (see decision 32 in the repository's DECISIONS.md).
    * <p>
    * Abstract classes are left out: VanillaBP asks CDI for an instance of a workflow service, so
    * a class nobody can instantiate serves nothing. A declaration whose whole family is abstract

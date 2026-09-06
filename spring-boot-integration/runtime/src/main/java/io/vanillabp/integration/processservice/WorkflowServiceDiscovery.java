@@ -126,7 +126,9 @@ public class WorkflowServiceDiscovery implements BeanDefinitionRegistryPostProce
         continue;
       }
       // findAnnotation walks the superclass chain, so a subclass of an annotated class
-      // is a workflow service as well - which is what @Inherited promises the developer
+      // is a workflow service as well - which is what @Inherited promises the developer,
+      // and the class registered is the SUBCLASS (see decision 32 in the repository's
+      // DECISIONS.md)
       if (AnnotationUtils.findAnnotation(beanClass, WorkflowService.class) == null) {
         continue;
       }
