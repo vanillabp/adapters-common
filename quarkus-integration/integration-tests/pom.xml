@@ -28,7 +28,7 @@
   <properties>
     <!-- test-only modules: nothing to publish. The BPMS double these tests run against is
          NOT one of them: it is published and lives in 'bpms-double', because the platform
-         proves it for outsiders by using it itself - see decision 32 in the repository's
+         proves it for outsiders by using it itself - see decision 33 in the repository's
          DECISIONS.md. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>

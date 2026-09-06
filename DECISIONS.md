@@ -816,7 +816,7 @@ A declaration nobody can serve is reported instead of registered. An abstract cl
 annotation with no concrete subclass in the index has no class to hand a task to, and saying so is
 better than the bean question the developer used to get about a class they made abstract on purpose.
 
-### 32. The BPMS double is published, and the platform's own tests use the published one
+### 33. The BPMS double is published, and the platform's own tests use the published one
 
 An application which needs a BPMS to boot cannot be tested by anything which has no BPMS, so every
 repository next to VanillaBP either starts a real engine or writes a double of its own. VanillaBP

@@ -8,7 +8,7 @@ application boots and runs a workflow in a test without an engine anywhere near 
 
 This is the same code the platform integration tests itself with. Nothing here is a second
 implementation written for outside users: what an outsider gets is what the platform's own test
-suites run against on every build, and that is the reason it is published at all (see decision 32
+suites run against on every build, and that is the reason it is published at all (see decision 33
 in the repository's DECISIONS.md).
 
 - [What it is for](#what-it-is-for)
