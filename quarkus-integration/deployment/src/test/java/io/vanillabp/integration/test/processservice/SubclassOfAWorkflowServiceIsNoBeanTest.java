@@ -21,8 +21,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * for an instance of THAT class - and a bean of a subclass cannot stand in for it, because a
  * subclass is a different workflow service, serving a BPMN process of its own wherever the
  * process ID follows the class name. A class which never became a bean is therefore reported
- * while the application is built, with the three ways out a developer has here: make it a
- * bean, make it abstract, or stop inheriting the declaration.
+ * while the application is built, and the message says what to do about it: annotate the
+ * class, or make it abstract where it is only meant to carry the declaration.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class SubclassOfAWorkflowServiceIsNoBeanTest {

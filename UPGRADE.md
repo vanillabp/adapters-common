@@ -21,8 +21,8 @@ workflow service class while the application starts. Two shapes end up there: a 
 `@WorkflowStartedByBpms` or `@WorkflowEnded` method which is not public, and a method overriding an
 annotated one without repeating the annotation, which Java never inherits. Neither was ever wired,
 in version 1 no more than now, and both used to surface as the wiring validation asking for a method
-the developer can point at in their own source. The report names the method, the class it is
-declared in and the way out. VanillaBP does not serve such a method: reflection could lift the
+the developer can point at in their own source. The report names the method and the class it is
+declared in, and says what to do about it. VanillaBP does not serve such a method: reflection could lift the
 visibility of a handler, and which methods a class offers is the decision of whoever wrote it.
 
 **For a Quarkus application built against a 2.0 snapshot**, and only for that reader, since version
