@@ -2,7 +2,9 @@
 
 Documents changes that were necessary when upgrading major dependency versions,
 so the reasoning can be looked up later (e.g. when upgrading BPMS adapters or
-applications built on VanillaBP).
+applications built on VanillaBP). What an application on Camunda 7 has to configure on top of
+this is in
+[that adapter's own file](https://github.com/vanillabp/camunda7-adapter/blob/main/UPGRADE.md).
 
 ## @WorkflowService on an interface ends the start with a message (2026-09-06)
 
