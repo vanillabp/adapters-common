@@ -582,7 +582,7 @@ sequenceDiagram
   Note over DS,WT: once EVERY adapter of the module deployed, the CORE runs the module-level checks<br/>in this order (nothing an adapter knows, so no adapter may forget them any more)
   DS->>WT: bpmnProcessesWithoutWorkflowService(module)  [WARN naming every unclaimed process and its file]
   DS->>WT: registerVersionsOfProcessesNobodyDeployed(module, adapterId, processVersionCatalogOf)  [per adapter of the module]
-  DS->>AD: processVersionCatalogOf(module, process)  [per id declared but not deployed; null = cannot say]
+  DS->>AD: processVersionCatalogOf(module, process)  [per id declared but not deployed, null = cannot say]
   DS->>WT: validateNoUnwiredWorkflowTaskMethods(module)
   DS->>WT: resolveProcessVersions(module)
   Note over DS: failure → deployment-failure policy: fail | warn (non-first-priority only)
