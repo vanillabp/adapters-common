@@ -1,7 +1,13 @@
 package io.vanillabp.integration.processservice;
 
+import java.lang.annotation.Annotation;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
@@ -16,6 +22,7 @@ import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.env.Environment;
 import org.springframework.util.ClassUtils;
 
+import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowServiceBelongsOnAClass;
 import io.vanillabp.spi.service.WorkflowService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -99,11 +106,20 @@ public class WorkflowServiceDiscovery implements BeanDefinitionRegistryPostProce
    * @return The workflow service classes, each of them once no matter how many beans of
    *     it exist (which bean serves a task is decided when the task is delivered, by
    *     asking the bean factory for the one bean of that class)
+   * @throws IllegalStateException If the annotation was found on a type which cannot
+   *     serve tasks - an interface the bean's class implements, or an annotation of the
+   *     application's own. This is the only place which knows both that the annotation
+   *     was found and that the class itself does not carry it; everything downstream
+   *     reads it off the class alone.
    */
   private List<Class<?>> workflowServiceClassesOf(
       final BeanDefinitionRegistry registry) {
 
     final var workflowServiceClasses = new LinkedHashSet<Class<?>>();
+    // the types which declared an annotation the bean's class does not carry, each with
+    // the classes which brought it in: all of them are reported in one message, so a
+    // developer does not learn about the second one on the next start
+    final var declaredElsewhere = new LinkedHashMap<Class<?>, List<Class<?>>>();
     for (final var beanName : registry.getBeanDefinitionNames()) {
       final var beanClass = beanClassOf(beanName);
       if (beanClass == null) {
@@ -114,9 +130,94 @@ public class WorkflowServiceDiscovery implements BeanDefinitionRegistryPostProce
       if (AnnotationUtils.findAnnotation(beanClass, WorkflowService.class) == null) {
         continue;
       }
+      // it walks further than @Inherited does, though: into implemented interfaces and
+      // into annotations of the application's own. Such a class passes as a workflow
+      // service here and carries nothing the registry and the task scanner can read
+      if (beanClass.getAnnotation(WorkflowService.class) == null) {
+        final var declaringType = typeDeclaringTheAnnotation(beanClass);
+        if (declaringType != null) {
+          declaredElsewhere
+              .computeIfAbsent(declaringType, type -> new LinkedList<>())
+              .add(beanClass);
+          continue;
+        }
+        // found somewhere this search does not reach: less than the refusal says, but
+        // the registrar names the class it fails on
+      }
       workflowServiceClasses.add(beanClass);
     }
+    if (!declaredElsewhere.isEmpty()) {
+      throw new IllegalStateException(refusalOf(declaredElsewhere));
+    }
     return List.copyOf(workflowServiceClasses);
+
+  }
+
+  /**
+   * The type which carries the annotation a bean's class does not carry itself, searched
+   * the way {@link AnnotationUtils#findAnnotation} searches: breadth first over the
+   * implemented interfaces, the annotations present (an annotation of the application
+   * composing {@link WorkflowService} among them) and the superclass, stopping at the
+   * first type which DECLARES the annotation.
+   *
+   * @param beanClass The class of the bean
+   * @return The interface or annotation to name in the message, or <code>null</code>
+   *     where the annotation sits somewhere this search does not reach
+   */
+  private static Class<?> typeDeclaringTheAnnotation(
+      final Class<?> beanClass) {
+
+    final var visited = new LinkedHashSet<Class<?>>();
+    final var pending = new LinkedList<Class<?>>();
+    pending.add(beanClass);
+    while (!pending.isEmpty()) {
+      final var type = pending.removeFirst();
+      if (!visited.add(type)) {
+        continue;
+      }
+      if ((type != beanClass) && (type.getDeclaredAnnotation(WorkflowService.class) != null)) {
+        return type;
+      }
+      pending.addAll(List.of(type.getInterfaces()));
+      Stream
+          .of(type.getDeclaredAnnotations())
+          .map(Annotation::annotationType)
+          .forEach(pending::add);
+      if (type.getSuperclass() != null) {
+        pending.add(type.getSuperclass());
+      }
+    }
+    return null;
+
+  }
+
+  /**
+   * The message ending the start, one paragraph per type which declared the annotation.
+   *
+   * @param declaredElsewhere The declaring types with the classes which brought them in
+   * @return The message, whose wording is the core's - Quarkus refuses the same two
+   *     shapes while an application is built and says the same thing
+   */
+  private static String refusalOf(
+      final Map<Class<?>, List<Class<?>>> declaredElsewhere) {
+
+    return declaredElsewhere
+        .entrySet()
+        .stream()
+        .map(declaration -> {
+          final var broughtInBy = declaration
+              .getValue()
+              .stream()
+              .map(Class::getName)
+              .sorted()
+              .toList();
+          return declaration.getKey().isAnnotation()
+              ? WorkflowServiceBelongsOnAClass
+                  .foundOnAnAnnotation(declaration.getKey().getName(), broughtInBy)
+              : WorkflowServiceBelongsOnAClass
+                  .foundOnAnInterface(declaration.getKey().getName(), broughtInBy);
+        })
+        .collect(Collectors.joining("\n"));
 
   }
 

@@ -69,33 +69,51 @@ public class ProcessServiceBeanRegistrar implements BeanRegistrar {
       final BeanRegistry registry,
       final Environment environment) {
 
-    try {
-
-      // build ProcessService<A> bean definitions: ONE injectable bean per
-      // aggregate type (the SPI's injection contract), whose primary BPMN process
-      // is picked among the classes declaring the aggregate. ALL classes declaring
-      // the aggregate and ALL their declared BPMN process IDs (bpmnProcess +
-      // secondaryBpmnProcesses) are additionally registered for phase-two routing
-      // and @WorkflowTask processing.
-      final var classesByAggregate = new LinkedHashMap<Class<?>, List<Class<?>>>();
-      workflowServiceClasses
-          .forEach(serviceClass -> classesByAggregate
-              .computeIfAbsent(
-                  serviceClass.getAnnotation(WorkflowService.class).workflowAggregateClass(),
-                  aggregateType -> new LinkedList<>())
-              .add(serviceClass));
-      classesByAggregate
-          .forEach((
-              workflowAggregateType,
-              serviceClasses) -> registerProcessServiceBean(
-                  registry,
-                  workflowServiceClasses,
-                  serviceClasses,
-                  workflowAggregateType));
-
-    } catch (Exception e) {
-      throw new IllegalStateException("Could not register ProcessService beans", e);
+    // build ProcessService<A> bean definitions: ONE injectable bean per
+    // aggregate type (the SPI's injection contract), whose primary BPMN process
+    // is picked among the classes declaring the aggregate. ALL classes declaring
+    // the aggregate and ALL their declared BPMN process IDs (bpmnProcess +
+    // secondaryBpmnProcesses) are additionally registered for phase-two routing
+    // and @WorkflowTask processing.
+    //
+    // Both loops know which class respectively which aggregate they are on, so every
+    // failure is reported with that name - a defect nobody foresaw included, which is
+    // what this used to swallow into one message naming nothing
+    final var classesByAggregate = new LinkedHashMap<Class<?>, List<Class<?>>>();
+    for (final var serviceClass : workflowServiceClasses) {
+      try {
+        classesByAggregate
+            .computeIfAbsent(
+                serviceClass.getAnnotation(WorkflowService.class).workflowAggregateClass(),
+                aggregateType -> new LinkedList<>())
+            .add(serviceClass);
+      } catch (Exception e) {
+        throw new IllegalStateException(
+            "Could not read @WorkflowService of class '%s'".formatted(serviceClass.getName()), e);
+      }
     }
+    classesByAggregate
+        .forEach((
+            workflowAggregateType,
+            serviceClasses) -> {
+          try {
+            registerProcessServiceBean(
+                registry,
+                workflowServiceClasses,
+                serviceClasses,
+                workflowAggregateType);
+          } catch (Exception e) {
+            throw new IllegalStateException(
+                "Could not register the ProcessService of workflow aggregate '%s' declared by %s"
+                    .formatted(
+                        workflowAggregateType.getName(),
+                        serviceClasses
+                            .stream()
+                            .map(Class::getName)
+                            .sorted()
+                            .collect(Collectors.joining(", "))), e);
+          }
+        });
 
   }
 

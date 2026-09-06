@@ -689,7 +689,17 @@ process IDs it declares (`bpmnProcess` + `secondaryBpmnProcesses`) with the
 `WorkflowTaskRegistry` (scanning methods and building parameter binders once at
 startup). Adapters interact through two adapter SPIs which the registry implements
 together - `WorkflowTaskWiring` while an adapter deploys, `WorkflowTaskInvoker` in its
-worker threads. They were one interface of thirty methods until it became clear that a
+worker threads.
+
+What counts as such a class is checked before anything is registered. An interface carrying
+`@WorkflowService`, and an annotation of the application composing it, are refused - by Spring Boot
+while the application starts, by Quarkus while it is built - and
+`WorkflowServiceBelongsOnAClass` is the message both platforms say it with. VanillaBP reads the
+`@WorkflowTask` methods off the annotated type, and Java inherits a method annotation from a
+superclass and not from an interface, so the platforms would not even read the same methods: Spring
+Boot sees the bean's class, Quarkus the interface its index reports. A subclass of an annotated
+class stays a workflow service, which is what `@Inherited` promises and what a declaration shared
+by several classes uses. They were one interface of thirty methods until it became clear that a
 mandatory call an adapter can forget will be forgotten: Camunda 7 forgot the reverse
 wiring check for a year, and a typo in a task definition stayed silent until a workflow
 reached the task.

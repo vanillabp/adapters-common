@@ -48,6 +48,13 @@ import io.vanillabp.spi.process.ProcessService;
  * service claims costs; see
  * {@link io.vanillabp.integration.test.deployment.UnclaimedBpmnProcessTest} for the file
  * which carries such a process on purpose.
+ * <p>
+ * Two applications here do not start at all, and they are the boundary of what the
+ * annotation reaches: {@code AnnotationUtils.findAnnotation} searches implemented
+ * interfaces and annotations of the application's own, which {@code @Inherited} does not,
+ * so a class which carries the annotation nowhere itself used to pass as a workflow
+ * service and to end the start with a message naming nothing. A subclass of an annotated
+ * class stays a workflow service, which is the case next door.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class WorkflowServiceDiscoveryTest {
@@ -148,6 +155,69 @@ public class WorkflowServiceDiscoveryTest {
           "the inherited @WorkflowService got no ProcessService");
 
     }
+
+  }
+
+  @Test
+  public void anAnnotatedInterfaceEndsTheStartNamingBothTypes() {
+
+    final var failure = Assertions.assertThrows(
+        Exception.class,
+        () -> application(WorkflowServiceImplementingAnInterface.class).run().close(),
+        "the application booted with @WorkflowService on an interface");
+
+    final var reported = everyMessageOf(failure);
+    Assertions.assertTrue(
+        reported.contains(WorkflowServiceInterface.class.getName()),
+        "the interface carrying the annotation is not named: "
+            + reported);
+    Assertions.assertTrue(
+        reported.contains(WorkflowServiceImplementingAnInterface.class.getName()),
+        "the class which brought the annotation in is not named: "
+            + reported);
+    Assertions.assertTrue(
+        reported.contains("Move @WorkflowService onto the class holding the @WorkflowTask methods"),
+        "the way out is not named: "
+            + reported);
+
+  }
+
+  @Test
+  public void anAnnotationOfTheApplicationEndsTheStartNamingBothTypes() {
+
+    final var failure = Assertions.assertThrows(
+        Exception.class,
+        () -> application(MetaAnnotatedWorkflowService.class).run().close(),
+        "the application booted with @WorkflowService reached through an annotation of its own");
+
+    final var reported = everyMessageOf(failure);
+    Assertions.assertTrue(
+        reported.contains(OurOwnWorkflowService.class.getName()),
+        "the annotation carrying @WorkflowService is not named: "
+            + reported);
+    Assertions.assertTrue(
+        reported.contains(MetaAnnotatedWorkflowService.class.getName()),
+        "the class using it is not named: "
+            + reported);
+    Assertions.assertTrue(
+        reported.contains("Move @WorkflowService onto the class holding the @WorkflowTask methods"),
+        "the way out is not named: "
+            + reported);
+
+  }
+
+  /**
+   * Everything the failed start said, the whole cause chain of it: which of the exceptions
+   * carries the guiding message is Spring's business, not the assertion's.
+   */
+  private static String everyMessageOf(
+      final Throwable failure) {
+
+    final var messages = new java.util.LinkedList<String>();
+    for (var current = failure; current != null; current = current.getCause()) {
+      messages.add(String.valueOf(current.getMessage()));
+    }
+    return String.join("\n", messages);
 
   }
 

@@ -4,6 +4,38 @@ Documents changes that were necessary when upgrading major dependency versions,
 so the reasoning can be looked up later (e.g. when upgrading BPMS adapters or
 applications built on VanillaBP).
 
+## @WorkflowService on an interface ends the start with a message (2026-09-06)
+
+`@WorkflowService` belongs on the class holding the `@WorkflowTask` methods of one workflow
+aggregate, and until now the two platforms disagreed about what happens when it sits on an
+interface instead. Spring Boot's `AnnotationUtils.findAnnotation` searches implemented interfaces,
+which `@Inherited` does not, so the implementing bean passed the discovery and the registrar, which
+reads the annotation off the class itself, ran into a `NullPointerException`. What reached the
+developer was `Could not register ProcessService beans`, naming neither the class nor the
+interface. Quarkus took the other wrong turn: Jandex reports the interface as the annotated type,
+so the interface BECAME the workflow service and the `@WorkflowTask` methods declared in it served
+the tasks, invoked on an instance of the implementing class, while the handler methods of that
+class carried nothing at all, because Java does not inherit a method annotation from an interface.
+One source file, two behaviours.
+
+**Both platforms refuse it now**, Spring Boot while the application starts and Quarkus while it is
+built, with a message naming the interface, the classes implementing it and where the annotation
+belongs. An annotation of the application composing `@WorkflowService` is the same defect and gets
+the same refusal: Spring Boot resolves such a meta-annotation and reads the class using it, Quarkus
+reports the annotation type itself as the annotated one, so this shape disagrees the same way.
+
+**A Quarkus application which really put its handlers into an annotated interface stops booting**
+and moves the annotation, together with the handler methods, onto the class. Nothing else changes:
+a class carrying the annotation itself and a subclass inheriting it from an annotated superclass
+are what they always were, and a declaration meant for several classes belongs on a common
+superclass, which is what `@Inherited` is for.
+
+Independently of the refusal, **the registrar's own failure names something**. The loop building
+the `ProcessService` beans always knew which class and which workflow aggregate it was on, and
+`Could not register ProcessService beans` said none of it - which is the message every future
+defect in that loop would have produced. It now names the class whose annotation could not be
+read, respectively the workflow aggregate and the classes declaring it.
+
 ## A BPMN process nobody serves no longer stops the boot (2026-09-04)
 
 A BPMN file goes to the BPMS as a whole, so a file which declares two executable processes
