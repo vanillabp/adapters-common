@@ -9,7 +9,7 @@ import java.nio.file.StandardOpenOption;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 
-import io.vanillabp.adapter.dummy.runtime.DummyDeploymentListener;
+import io.vanillabp.bpmsdouble.DummyDeploymentListener;
 import io.vanillabp.extension.dummy.runtime.DummyExtensionListener;
 import jakarta.enterprise.context.ApplicationScoped;
 

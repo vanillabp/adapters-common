@@ -126,7 +126,7 @@ jobs:
       - name: Build what the application needs
         run: mvn -s $GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml
           --batch-mode --no-transfer-progress --update-snapshots -DskipTests
-          -pl quarkus-integration/deployment,quarkus-integration/integration-tests/dummy-adapter/deployment,quarkus-integration/integration-tests/native-image-tests
+          -pl quarkus-integration/deployment,bpms-double/quarkus/deployment,quarkus-integration/integration-tests/native-image-tests
           -am install
         env:
           USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"

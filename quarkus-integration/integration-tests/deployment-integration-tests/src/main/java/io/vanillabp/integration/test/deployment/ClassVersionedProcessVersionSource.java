@@ -3,7 +3,7 @@ package io.vanillabp.integration.test.deployment;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import io.vanillabp.adapter.dummy.runtime.DummyProcessVersionSource;
+import io.vanillabp.bpmsdouble.DummyProcessVersionSource;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import jakarta.enterprise.context.ApplicationScoped;
 

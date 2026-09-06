@@ -14,7 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusExtensionTest;
-import io.vanillabp.adapter.dummy.runtime.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
@@ -192,7 +192,7 @@ public class WorkflowTaskProcessingTest {
 
     final var overlay = io.smallrye.config.SmallRyeConfig.class
         .cast(org.eclipse.microprofile.config.ConfigProvider.getConfig())
-        .getConfigMapping(io.vanillabp.adapter.dummy.runtime.DummyAdapterOverlayProperties.class);
+        .getConfigMapping(io.vanillabp.bpmsdouble.quarkus.DummyAdapterOverlayProperties.class);
 
     assertEquals(42, overlay.testFor("test-module", "TaskProcess", "processTask", "demo1"));
     assertEquals(1, overlay.testFor("test-module", "TaskProcess", "someOtherTask", "demo1"));

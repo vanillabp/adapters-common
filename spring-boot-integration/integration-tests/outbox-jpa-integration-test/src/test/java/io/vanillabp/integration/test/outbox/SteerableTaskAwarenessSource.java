@@ -1,6 +1,6 @@
 package io.vanillabp.integration.test.outbox;
 
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyTaskAwarenessSource;
+import io.vanillabp.bpmsdouble.DummyTaskAwarenessSource;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 
 /**

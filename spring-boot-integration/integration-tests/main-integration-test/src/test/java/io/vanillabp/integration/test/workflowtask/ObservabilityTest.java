@@ -19,10 +19,10 @@ import org.springframework.context.annotation.Configuration;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyHealthSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyHealthSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.migration.config.MetricsProperties;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.migration.observability.DeliveryMdc;
@@ -180,7 +180,7 @@ public class ObservabilityTest {
           .getBean(MicrometerVanillaBpMetrics.class)
           .bindTo(registry);
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
 
       storeAggregate("m-1");
       dummyAdapter.invokeTask(MODULE, PROCESS, context("processTask", "m-1"));
@@ -274,7 +274,7 @@ public class ObservabilityTest {
 
     try (var testApp = buildTestApp(); var context = runTestApplication(testApp)) {
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
 
       org.slf4j.MDC.put("application.own.key", "untouched");
       try {

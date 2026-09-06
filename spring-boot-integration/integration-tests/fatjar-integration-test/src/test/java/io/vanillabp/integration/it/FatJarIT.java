@@ -103,7 +103,7 @@ public class FatJarIT {
       assertContains(capturedOutput, "FATJAR-TEST multibpmn2: multi-bpmn-module");
       // BPMN resources found in the fat JAR were deployed and processing started
       assertContains(capturedOutput, "Dummy-Adapter[test]: Deploying resources for test-module");
-      assertContains(capturedOutput, "Dummy-Adapter: Starting workflow processing for test-module");
+      assertContains(capturedOutput, "Dummy-Adapter[test]: Starting workflow processing for test-module");
       // graceful shutdown stops the process services
       assertContains(capturedOutput, "Stopping process service: test-module");
       assertContains(capturedOutput, "Stopping process service: multi-bpmn-module");

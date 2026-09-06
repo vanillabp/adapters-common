@@ -39,6 +39,7 @@
     <module>migration-adapter</module>
     <module>spring-boot-integration</module>
     <module>quarkus-integration</module>
+    <module>bpms-double</module>
     <module>test-coverage-report</module>
   </modules>
 
@@ -62,6 +63,10 @@
     <!-- Keep in sync with the property 'spi-for-java.version' of bom/pom.xml. -->
     <vanillabp.version>1.2.0-SNAPSHOT</vanillabp.version>
     <version.java>21</version.java>
+    <!-- the platform versions live here because two trees build against them: the two
+         platform integrations and the BPMS double, which is a module tree of its own -->
+    <spring-boot.version>4.1.1</spring-boot.version>
+    <quarkus.version>3.39.1</quarkus.version>
     <lombok.version>1.18.46</lombok.version>
     <mapstruct.version>1.6.3</mapstruct.version>
     <transaction-outbox.version>7.1.750</transaction-outbox.version>

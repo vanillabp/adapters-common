@@ -3,8 +3,8 @@ package io.vanillabp.integration.test.deployment;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import io.vanillabp.adapter.dummy.runtime.DummyDeploymentListener;
-import io.vanillabp.adapter.dummy.runtime.DummyPhaseTwoListener;
+import io.vanillabp.bpmsdouble.DummyDeploymentListener;
+import io.vanillabp.bpmsdouble.DummyPhaseTwoListener;
 import io.vanillabp.extension.dummy.runtime.DummyExtensionListener;
 import jakarta.enterprise.context.ApplicationScoped;
 

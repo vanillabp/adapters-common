@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import io.vanillabp.adapter.dummy.runtime.DummyProcessVersionSource;
+import io.vanillabp.bpmsdouble.DummyProcessVersionSource;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import jakarta.enterprise.context.ApplicationScoped;
 

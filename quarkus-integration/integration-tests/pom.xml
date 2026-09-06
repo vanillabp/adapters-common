@@ -14,7 +14,6 @@
   <name>Quarkus integration - Integration tests parent</name>
 
   <modules>
-    <module>dummy-adapter</module>
     <module>dummy-extension</module>
     <module>deployment-integration-tests</module>
     <module>test-applications</module>
@@ -27,7 +26,10 @@
   </modules>
 
   <properties>
-    <!-- test-only modules: nothing to publish -->
+    <!-- test-only modules: nothing to publish. The BPMS double these tests run against is
+         NOT one of them: it is published and lives in 'bpms-double', because the platform
+         proves it for outsiders by using it itself - see decision 32 in the repository's
+         DECISIONS.md. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
 

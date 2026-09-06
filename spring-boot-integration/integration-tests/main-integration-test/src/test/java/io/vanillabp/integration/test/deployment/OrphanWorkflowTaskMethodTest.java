@@ -9,8 +9,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration;
 import io.vanillabp.integration.test.TestPersistenceConfiguration;
 import io.vanillabp.integration.test.TestPhaseTwoOutboxConfiguration;
@@ -76,7 +76,7 @@ public class OrphanWorkflowTaskMethodTest {
   static class WiringConfiguration {
 
     @org.springframework.context.annotation.Bean
-    io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource orphanTaskWiringSource() {
+    io.vanillabp.bpmsdouble.DummyTaskWiringSource orphanTaskWiringSource() {
 
       return (
           adapterId,

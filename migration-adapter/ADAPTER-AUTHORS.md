@@ -670,6 +670,48 @@ never feed one platform's execution data into the other's report: a low number f
 names the features that platform never runs, and mixing the data destroys the only thing the
 number is good for.
 
+### Booting an application in a test without your BPMS
+
+Some of what you have to test has nothing to do with your BPMS: that your extension registers, that
+your configuration binds, that your bean reaches the application at all. Starting your engine for
+those is expensive and it hides the thing you wanted to see.
+
+For those tests VanillaBP publishes a BPMS double, an adapter which implements the whole SPI and
+answers whatever the test told it to answer. On Spring Boot it is one artifact:
+
+```xml
+<dependency>
+  <groupId>io.vanillabp</groupId>
+  <artifactId>bpms-double-spring-boot</artifactId>
+  <version>2.0.0</version>
+  <scope>test</scope>
+</dependency>
+```
+
+On Quarkus it is the extension pair, and both belong in the module which runs the tests:
+
+```xml
+<dependency>
+  <groupId>io.vanillabp</groupId>
+  <artifactId>bpms-double-quarkus</artifactId>
+  <version>2.0.0</version>
+  <scope>test</scope>
+</dependency>
+<dependency>
+  <groupId>io.vanillabp</groupId>
+  <artifactId>bpms-double-quarkus-deployment</artifactId>
+  <version>2.0.0</version>
+  <scope>test</scope>
+</dependency>
+```
+
+Configure it as an adapter of the type `dummy` and the application boots. What the double answers,
+how a test steers it and what about it is promised across releases is in
+[`bpms-double/README.md`](../bpms-double/README.md).
+
+This does not replace the tests against your own BPMS. Everything about YOUR adapter is proven
+against the real thing; the double is for the tests where a BPMS is in the way.
+
 ## 8. The checklist before your first pull request
 
 1. One `MigratableProcessService` and one `AdapterDeploymentService` per configured adapter id,

@@ -815,3 +815,29 @@ naming no `bpmnProcess` are that second case, since each of them names its proce
 A declaration nobody can serve is reported instead of registered. An abstract class carrying the
 annotation with no concrete subclass in the index has no class to hand a task to, and saying so is
 better than the bean question the developer used to get about a class they made abstract on purpose.
+
+### 32. The BPMS double is published, and the platform's own tests use the published one
+
+An application which needs a BPMS to boot cannot be tested by anything which has no BPMS, so every
+repository next to VanillaBP either starts a real engine or writes a double of its own. VanillaBP
+ships that double instead, as `bpms-double` plus one module per platform, because the alternative
+was for each such repository to depend on a real adapter and hope its engine starts quietly.
+
+The point is not the artifact, it is which code goes into it. The platform's own tests run against
+the published modules rather than against a copy kept in the test tree, and that is the whole
+argument for publishing: a double nobody uses is a double nobody notices is broken. A second,
+separately maintained one would compile under this repository's CI and would never run a workflow,
+so a wrong default or an uncalled path would surface in somebody else's build after a release. The
+two doubles this repository used to keep drifted apart while both were under its own CI and both
+were run every day, which is what that failure looks like while it is still cheap.
+
+It lives here and not in a repository of its own, which is where entry 31 sent the shared election
+cache, because the reasons differ. The cache has a release cycle of its own and must not drag the
+platform's; the double has none, since it implements the adapter SPI and follows every change to it
+in the same commit. A repository of its own would put a release round trip between an SPI change
+and the tests which prove it.
+
+What that costs is a contract. The log lines the double writes, the names of the beans it
+registers and the way it turns a filename into a BPMN process id are things a consumer can rely on,
+so they are written down in `bpms-double/README.md` and changed deliberately. Everything else about
+the double, the class layout included, stays free to move.

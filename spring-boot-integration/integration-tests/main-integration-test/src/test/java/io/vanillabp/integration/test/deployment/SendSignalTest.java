@@ -12,9 +12,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.ResolvableType;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterPhaseTwoListener;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyPhaseTwoListener;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.test.TestPersistenceConfiguration;
@@ -41,7 +41,7 @@ public class SendSignalTest {
   /**
    * Records what the dummy adapter broadcast.
    */
-  static class RecordingSignals implements DummyAdapterPhaseTwoListener {
+  static class RecordingSignals implements DummyPhaseTwoListener {
 
     final List<String> broadcast = new LinkedList<>();
 

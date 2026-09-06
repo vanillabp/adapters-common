@@ -3,7 +3,7 @@ package io.vanillabp.integration.test;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-import io.vanillabp.adapter.dummy.runtime.DummyViewerSource;
+import io.vanillabp.bpmsdouble.DummyViewerSource;
 import io.vanillabp.spi.process.ProcessDefinition;
 import io.vanillabp.spi.process.WorkflowElementHistory;
 import io.vanillabp.spi.process.WorkflowElementType;

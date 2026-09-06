@@ -19,10 +19,10 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyTaskWiringSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.migration.delivery.JdbcTaskDeliveryStore;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
@@ -303,7 +303,7 @@ public class DeliveryRecordReleaseTest {
 
     try (var testApp = buildTestApp(true); var context = runTestApplication(testApp)) {
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
       Assertions.assertEquals(
           List.of(PROCESS),
           dummyAdapter.getProcessesWithEndListener(),
@@ -348,7 +348,7 @@ public class DeliveryRecordReleaseTest {
 
     try (var testApp = buildTestApp(false); var context = runTestApplication(testApp)) {
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
       Assertions.assertEquals(
           List.of(),
           dummyAdapter.getProcessesWithEndListener(),

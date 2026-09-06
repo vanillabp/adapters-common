@@ -3,7 +3,7 @@ package io.vanillabp.integration.test.persistence;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import io.vanillabp.adapter.dummy.runtime.DummyPhaseTwoListener;
+import io.vanillabp.bpmsdouble.DummyPhaseTwoListener;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**

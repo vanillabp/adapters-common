@@ -2156,7 +2156,7 @@ core and bound natively per platform. **Zero user-visible config-key changes.**
   `package`).
 - **Blanket `withMappingIgnore("vanillabp.**")` dropped:** adapter extensions
   now register an OVERLAY `@ConfigMapping(prefix = "vanillabp")` for their own
-  keys (reference: the Quarkus dummy adapter's `DummyAdapterOverlayProperties`;
+  keys (reference: `DummyAdapterOverlayProperties` of the BPMS double's Quarkus module;
   Spring counterpart: a second `@ConfigurationProperties("vanillabp")` class).
   Consequence: a typo under `vanillabp.*` FAILS the Quarkus startup again
   (Spring's JavaBean binding stays lenient - accepted asymmetry).

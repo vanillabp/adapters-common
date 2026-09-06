@@ -20,10 +20,6 @@
     <module>integration-tests</module>
   </modules>
 
-  <properties>
-    <quarkus.version>3.39.1</quarkus.version>
-  </properties>
-
   <dependencyManagement>
     <dependencies>
       <dependency>

@@ -19,10 +19,10 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyBpmsInitiatedStartSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyBpmsInitiatedStartSource;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartContext;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec;
 import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration;
@@ -279,7 +279,7 @@ public class BpmsInitiatedStartTest {
         StartEventsConfiguration.class)) {
 
       final var dummyAdapter = context
-          .getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+          .getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
 
       // (a) a timer start without any application code: the aggregate is built, the
       // trigger time is its ID and the variables the model set land in it
@@ -349,7 +349,7 @@ public class BpmsInitiatedStartTest {
         StartEventsConfiguration.class)) {
 
       final var dummyAdapter = context
-          .getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+          .getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
 
       // the model pays for the notification only where the application asked for
       // one: the workflow service of 'TimerProcess' has a @WorkflowEnded method,
