@@ -579,8 +579,9 @@ sequenceDiagram
   end
   DS->>AD: deployResources(module, PC)
   AD->>WT: registerDeployedVersion(module, process, version)  — per process, the adapter's own duty
-  Note over DS,WT: once EVERY adapter of the module deployed, the CORE runs the module-level checks<br/>in this order (nothing an adapter knows, so no adapter may forget them any more)
+  Note over DS,WT: once EVERY adapter of EVERY module deployed, the CORE writes its startup reports<br/>(they need the file each BPMN process came from, which the deployment collected)
   DS->>WT: bpmnProcessesWithoutWorkflowService(module)  [WARN naming every unclaimed process and its file]
+  Note over DS,WT: then, per workflow module, in this order<br/>(nothing an adapter knows, so no adapter may forget them any more)
   DS->>WT: registerVersionsOfProcessesNobodyDeployed(module, adapterId, processVersionCatalogOf)  [per adapter of the module]
   DS->>AD: processVersionCatalogOf(module, process)  [per id declared but not deployed, null = cannot say]
   DS->>WT: validateNoUnwiredWorkflowTaskMethods(module)
@@ -714,10 +715,15 @@ reached the task.
    defect the developer can fix in their own code.
 
    **What the core does on its own**, once the last adapter of a workflow module finished
-   deploying: four module-level steps in an order which matters. First the report about
-   the processes no `@WorkflowService` class claims, from
-   `bpmnProcessesWithoutWorkflowService(module)`, next to the deployment's other startup
-   reports. Then every adapter of the module is asked, through
+   deploying: four calls on `WorkflowTaskWiring`, of which three run per module. The
+   report about the processes no `@WorkflowService` class claims comes first, from
+   `bpmnProcessesWithoutWorkflowService(module)`, and it is written with the deployment's
+   other startup reports rather than inside the per-module checks, because those reports
+   name the file each BPMN process came from and that map belongs to the deployment as a
+   whole.
+
+   The three per-module calls follow, in an order which matters. Every adapter of the
+   module is asked first, through
    `registerVersionsOfProcessesNobodyDeployed(module, adapter, ...)` and the adapter's
    `processVersionCatalogOf`, what its BPMS still holds for a BPMN process the
    application declares without bringing a model - the id a rename left behind. Those

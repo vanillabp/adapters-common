@@ -300,14 +300,17 @@ BPMS deployed nothing because nothing had changed, because only you can find out
 ended up with, and the core needs that border between the model of this boot and the older ones.
 
 The module-level checks are the core's, not yours. Once the last adapter of a workflow module
-finished deploying, the core runs four of them, in this order, and an adapter calls none of them.
+finished deploying, the core makes four calls on `WorkflowTaskWiring`, and an adapter makes none
+of them.
 
 It begins by reporting the BPMN processes of the module which no `@WorkflowService` class claims,
-read from `bpmnProcessesWithoutWorkflowService`. You never call it, but whether its report is
-complete is up to you: it names exactly the processes you called `validateTaskWiring` for, so a
-process you skipped because nothing claimed it stays unmentioned.
+read from `bpmnProcessesWithoutWorkflowService` and written with the deployment's other startup
+reports. You never call it, but whether its report is complete is up to you: it can only name a
+process you called `validateTaskWiring` for, so one you skipped because nothing claimed it stays
+unmentioned.
 
-Then `registerVersionsOfProcessesNobodyDeployed` runs, once per adapter of the module, and it is
+The other three run per workflow module, in an order which matters.
+`registerVersionsOfProcessesNobodyDeployed` comes first, once per adapter of the module, and it is
 what brings the core back to your deployment service after everything was deployed:
 `processVersionCatalogOf(module, process)`. It asks what your BPMS holds for a BPMN process the
 application declares without bringing a model for it, which is what renaming a BPMN process leaves
