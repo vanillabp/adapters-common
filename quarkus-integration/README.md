@@ -52,6 +52,11 @@ as possible at **build time**, following Quarkus' extension philosophy:
    (`AdditionalApplicationArchiveMarkerBuildItem`), so JARs containing only the
    descriptor and BPMS resources (or JARs built without the plugin, e.g. by Gradle)
    are detected as well.
+   What the index reports is the type the annotation SITS on, which is why an interface
+   carrying `@WorkflowService`, and an annotation of the application composing it, end the
+   build with a message naming the type and the classes which brought it in: an interface
+   would serve the methods declared in it, and Spring Boot would serve those of the
+   implementing class.
 2. **Bean generation via Gizmo:** For each workflow aggregate a
    `ProcessService_<Aggregate>` CDI bean class extending `ProcessServiceBaseCdiBean<A>`
    is generated as bytecode at build time — the Quarkus counterpart of Spring's

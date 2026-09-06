@@ -3,6 +3,7 @@ package io.vanillabp.integration.deployment.processservice;
 import static io.quarkus.gizmo.Type.classType;
 import static io.quarkus.gizmo.Type.parameterizedType;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -12,9 +13,11 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 import org.jboss.jandex.AnnotationInstance;
+import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
+import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Type;
 
 import io.quarkus.arc.Unremovable;
@@ -30,6 +33,7 @@ import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.gizmo.ClassCreator;
 import io.quarkus.gizmo.MethodDescriptor;
 import io.quarkus.gizmo.SignatureBuilder;
+import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowServiceBelongsOnAClass;
 import io.vanillabp.integration.deployment.config.MigrationAdapterPropertiesBuildItem;
 import io.vanillabp.integration.deployment.validation.EnsureClassIsBeanValidationBuildItem;
 import io.vanillabp.integration.deployment.workflowmodule.VanillaBpWorkflowModulesBuildItem;
@@ -116,8 +120,7 @@ public class ProcessServiceBuildStepProcessor {
     // "First class found" needs a stable archive order to be reproducible, which is
     // why getAllArchives is used: it lists the root archive first and the remaining
     // archives in the order Quarkus resolved them.
-    final var annotationsByAggregate = new LinkedHashMap<Type, List<AnnotationInstance>>();
-    applicationArchivesBuildItem
+    final var workflowServiceAnnotations = applicationArchivesBuildItem
         // search all archives of the project
         .getAllArchives()
         .stream()
@@ -125,6 +128,16 @@ public class ProcessServiceBuildStepProcessor {
             .getIndex()
             .getAnnotations(WorkflowService.class)
             .stream())
+        .toList();
+
+    // an annotated type which is no class serves nothing, and this is where that is
+    // still visible: what Jandex reports here is the type the annotation SITS on, and
+    // the build ends before the ensure-is-bean item below turns the defect into a
+    // question about CDI beans
+    refuseAnnotationsNotOnAClass(combinedIndex.getIndex(), workflowServiceAnnotations);
+
+    final var annotationsByAggregate = new LinkedHashMap<Type, List<AnnotationInstance>>();
+    workflowServiceAnnotations
         .forEach(annotation -> annotationsByAggregate
             .computeIfAbsent(
                 annotation
@@ -285,6 +298,65 @@ public class ProcessServiceBuildStepProcessor {
               String.join(";", workflowTaskRegistrations));
 
         });
+
+  }
+
+  /**
+   * Ends the build where <code>&#64;WorkflowService</code> does not sit on a class: on an
+   * interface, or on an annotation of the application composing it - Jandex resolves no
+   * meta-annotation and reports the annotation type itself as the annotated one, so both
+   * shapes arrive here as an annotated INTERFACE. Every one of them is reported, so a
+   * developer does not meet the second on the next build.
+   *
+   * @param index The index of the application and its indexed dependencies, asked which
+   *        classes brought the declaration in
+   * @param annotations Every <code>&#64;WorkflowService</code> of the application archives
+   */
+  private static void refuseAnnotationsNotOnAClass(
+      final IndexView index,
+      final List<AnnotationInstance> annotations) {
+
+    final var declaringClasses = new LinkedHashMap<DotName, ClassInfo>();
+    annotations
+        .stream()
+        .filter(annotation -> annotation.target().kind() == AnnotationTarget.Kind.CLASS)
+        .map(annotation -> annotation.target().asClass())
+        .filter(ClassInfo::isInterface)
+        .forEach(declaringClass -> declaringClasses.putIfAbsent(declaringClass.name(), declaringClass));
+    if (declaringClasses.isEmpty()) {
+      return;
+    }
+    throw new IllegalStateException(declaringClasses
+        .values()
+        .stream()
+        .map(declaringClass -> declaringClass.isAnnotation()
+            ? WorkflowServiceBelongsOnAClass.foundOnAnAnnotation(
+                declaringClass.name().toString(),
+                classNamesOf(index
+                    .getAnnotations(declaringClass.name())
+                    .stream()
+                    .filter(usage -> usage.target().kind() == AnnotationTarget.Kind.CLASS)
+                    .map(usage -> usage.target().asClass())
+                    .toList()))
+            : WorkflowServiceBelongsOnAClass.foundOnAnInterface(
+                declaringClass.name().toString(),
+                classNamesOf(index.getAllKnownImplementors(declaringClass.name()))))
+        .collect(java.util.stream.Collectors.joining("\n")));
+
+  }
+
+  /**
+   * The names of the classes which brought a declaration in, sorted so the message does
+   * not depend on the order the archives happened to be scanned in.
+   */
+  private static List<String> classNamesOf(
+      final Collection<ClassInfo> classes) {
+
+    return classes
+        .stream()
+        .map(clazz -> clazz.name().toString())
+        .sorted()
+        .toList();
 
   }
 
