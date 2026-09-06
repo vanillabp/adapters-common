@@ -217,6 +217,19 @@ deployed, which is the border between the application's own model and the older 
 Building the same judgement in every adapter would give every BPMS its own wording and its own
 gaps.
 
+Which process ids are asked about is the core's question as well. A workflow module may declare a
+process id no BPMN file of this boot carries any more, which is how a renamed process keeps being
+served, and an adapter cannot arrive at that id on its own, because it sees the model it just
+deployed and nothing else. So the core asks every adapter of the module for the catalog of such a
+declared-only id through `processVersionCatalogOf`, whose default answer is nothing, and an adapter
+whose BPMS cannot be searched by process id stays as it is.
+
+That is also why a `deployedVersion` of null carries two meanings now. Where the module deployed
+the process, no version reported by the BPMS means there is no older one to speak of; where the id
+was only declared, every version the BPMS holds under it is an older one, and the ordinary reports
+run over all of them. Only the core can tell the two apart, because only it knows what the
+application declared.
+
 ### 16. The two tables VanillaBP owns come from one schema artifact
 
 The phase-two outbox and the task delivery log are ours, so `vanillabp-schema` ships one
