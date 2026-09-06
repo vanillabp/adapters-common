@@ -19,10 +19,10 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyTaskWiringSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
@@ -412,7 +412,7 @@ public class InheritedWorkflowServiceTest {
       seeded.setServedBy("nobody");
       InheritanceConfiguration.AGGREGATES.put("4711", seeded);
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
       Assertions.assertEquals(
           WorkflowTaskOutcome.Kind.COMPLETED,
           dummyAdapter.invokeTask(MODULE, PROCESS, context("ownTask", "4711")).kind());
@@ -468,7 +468,7 @@ public class InheritedWorkflowServiceTest {
       seeded.setServedBy("nobody");
       SharedProcessConfiguration.AGGREGATES.put("4712", seeded);
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
       Assertions.assertEquals(
           WorkflowTaskOutcome.Kind.COMPLETED,
           dummyAdapter.invokeTask(MODULE, SHARED_PROCESS, context("firstHalf", "4712")).kind());
