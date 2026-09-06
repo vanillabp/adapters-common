@@ -579,7 +579,10 @@ sequenceDiagram
   end
   DS->>AD: deployResources(module, PC)
   AD->>WT: registerDeployedVersion(module, process, version)  — per process, the adapter's own duty
-  Note over DS,WT: once EVERY adapter of the module deployed, the CORE calls:<br/>validateNoUnwiredWorkflowTaskMethods(module) · resolveProcessVersions(module)<br/>(module-level, nothing an adapter knows — no adapter may forget them any more)
+  Note over DS,WT: once EVERY adapter of the module deployed, the CORE runs the module-level checks<br/>in this order (nothing an adapter knows, so no adapter may forget them any more)
+  DS->>WT: bpmnProcessesWithoutWorkflowService(module)  [WARN naming every unclaimed process and its file]
+  DS->>WT: registerVersionsOfProcessesNobodyDeployed(module, adapterId, processVersionCatalogOf)  [per adapter of the module]
+  DS->>AD: processVersionCatalogOf(module, process)  [per id declared but not deployed; null = cannot say]
   DS->>WT: validateNoUnwiredWorkflowTaskMethods(module)
   DS->>WT: resolveProcessVersions(module)
   Note over DS: failure → deployment-failure policy: fail | warn (non-first-priority only)
@@ -711,14 +714,24 @@ reached the task.
    defect the developer can fix in their own code.
 
    **What the core does on its own**, once the last adapter of a workflow module finished
-   deploying: `validateNoUnwiredWorkflowTaskMethods(module)` - the other direction, every
-   method matches a task somewhere in the module - and `resolveProcessVersions(module)`.
-   Both are module-level and need nothing an adapter knows, so the core picks the moment
-   instead of asking every adapter author to remember it. The report about the unclaimed
-   processes runs in the same moment, from `bpmnProcessesWithoutWorkflowService(module)`,
-   next to the deployment's other startup reports. The reverse check stays exactly as
-   loud as it was: an unclaimed process is never compared against methods, so it can
-   neither excuse nor hide one.
+   deploying: four module-level steps in an order which matters. First the report about
+   the processes no `@WorkflowService` class claims, from
+   `bpmnProcessesWithoutWorkflowService(module)`, next to the deployment's other startup
+   reports. Then every adapter of the module is asked, through
+   `registerVersionsOfProcessesNobodyDeployed(module, adapter, ...)` and the adapter's
+   `processVersionCatalogOf`, what its BPMS still holds for a BPMN process the
+   application declares without bringing a model - the id a rename left behind. Those
+   versions have to be in before `validateNoUnwiredWorkflowTaskMethods(module)`, the
+   other direction of the wiring check where every method has to match a task somewhere
+   in the module: without them a method kept for a renamed process reads exactly like a
+   method wired to nothing. `resolveProcessVersions(module)` goes last, because a method
+   serving no task at all is the more basic defect and the developer should read about it
+   first.
+
+   All four need nothing an adapter knows, so the core picks the moment instead of asking
+   every adapter author to remember it. The reverse check stays exactly as loud as it
+   was: an unclaimed process is never compared against methods, so it can neither excuse
+   nor hide one.
    `registerDeployedVersion` stays with the adapter: only it knows which version its BPMS
    ended up with.
 
