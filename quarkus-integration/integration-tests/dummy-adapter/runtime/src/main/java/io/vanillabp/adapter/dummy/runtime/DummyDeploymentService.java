@@ -262,6 +262,20 @@ public class DummyDeploymentService implements AdapterDeploymentService<Object, 
     log.info("Dummy-Adapter[{}]: Reading BPMN '{}' for {}", adapterId, filename, workflowModuleId);
     notifyListeners("readBpmn", workflowModuleId, filename);
 
+    // a test may declare what the file holds, which is how a file with a SECOND
+    // executable process is modelled; otherwise one process per file, named after the
+    // file - parity with the Spring Boot dummy adapter
+    final var declaredProcesses = (taskWiringSource != null) && taskWiringSource.isResolvable()
+        ? taskWiringSource
+            .get()
+            .executableProcessesOf(adapterId, workflowModuleId, filename)
+        : List.<String>of();
+    if (!declaredProcesses.isEmpty()) {
+      return declaredProcesses
+          .stream()
+          .map(bpmnProcessId -> Map.entry(bpmnProcessId, new Object()))
+          .toList();
+    }
     final var bpmnProcessId = filename.endsWith(".bpmn")
         ? filename.substring(0, filename.length() - ".bpmn".length())
         : filename;

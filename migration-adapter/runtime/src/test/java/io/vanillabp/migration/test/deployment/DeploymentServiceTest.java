@@ -1,6 +1,7 @@
 package io.vanillabp.migration.test.deployment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1183,6 +1184,144 @@ public class DeploymentServiceTest {
           .filter(event -> event.getLevel() == Level.WARN)
           .map(ILoggingEvent::getFormattedMessage)
           .noneMatch(msg -> msg.contains("workflows.TestProcess")));
+
+    }
+
+  }
+
+  @Nested
+  @DisplayName("BPMN processes no workflow service claims")
+  class UnclaimedBpmnProcessesTests {
+
+    /**
+     * A wiring interface answering that the given processes of 'test-module' are
+     * claimed by nobody - what the registry collects while an adapter wires them.
+     */
+    private io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring wiringReporting(
+        final String... unclaimedProcessIds) {
+
+      return new io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring() {
+
+        @Override
+        public void validateTaskWiring(
+            final String workflowModuleId,
+            final String bpmnProcessId,
+            final java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> tasks) {
+        }
+
+        @Override
+        public void validateNoUnwiredWorkflowTaskMethods(
+            final String workflowModuleId) {
+        }
+
+        @Override
+        public java.util.Collection<String> bpmnProcessesWithoutWorkflowService(
+            final String workflowModuleId) {
+
+          return List.of(unclaimedProcessIds);
+
+        }
+
+        @Override
+        public String resolveWorkflowAggregateIdName(
+            final String workflowModuleId,
+            final String bpmnProcessId) {
+
+          return null;
+
+        }
+
+      };
+
+    }
+
+    private DeploymentService deployTwoProcessesOfOneFile(
+        final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring workflowTaskWiring) {
+
+      final var properties = createPropertiesWithAdapter("adapter-test1");
+      when(adapter1DeploymentService.getAdapterId()).thenReturn("adapter-test1");
+
+      final BiFunction<String, String, Map<String, InputStream>> resourcesLoader = bpmnFilesOnly(
+          location -> Map.of("two-processes.bpmn", createDummyBpmnInputStream()));
+
+      // one file, two executable processes - what a modeller produces by drawing a
+      // called process next to the calling one
+      when(adapter1DeploymentService.readBpmn(anyString(), anyString(), any(InputStream.class), anyBoolean()))
+          .thenReturn(List.of(Map.entry("Claiming", 42), Map.entry("Unclaimed", 43)));
+      when(adapter1DeploymentService.prepareBpmn(anyString(), any(), anyString(), anyString(), any()))
+          .thenReturn(100);
+
+      final var testee = new DeploymentService(
+          properties, List.of(adapter1DeploymentService), List.of(), workflowTaskWiring);
+      testee.deployResources(List.of("test-module"), resourcesLoader);
+      return testee;
+
+    }
+
+    @Test
+    @DisplayName("The WARN names the process, its file and the workflow module, and what it costs")
+    public void unclaimedProcessIsWarnedAboutNamingItsFile() {
+
+      deployTwoProcessesOfOneFile(wiringReporting("Unclaimed"));
+
+      final var warnings = logWatcher.list
+          .stream()
+          .filter(event -> event.getLevel() == Level.WARN)
+          .map(ILoggingEvent::getFormattedMessage)
+          .filter(message -> message.contains("no @WorkflowService class"))
+          .toList();
+      assertEquals(1, warnings.size(), "one report per workflow module, whatever it lists: "
+          + warnings);
+      final var warning = warnings.getFirst();
+      assertTrue(warning.contains("'test-module'"), warning);
+      assertTrue(warning.contains("process 'Unclaimed' of file 'two-processes.bpmn'"), warning);
+      assertTrue(warning.contains("not get past its first task"), warning);
+      assertTrue(warning.contains("@WorkflowService(bpmnProcess"), warning);
+      assertTrue(warning.contains("take the process out of its file"), warning);
+      assertFalse(warning.contains("Claiming"), "the claimed process of the same file is not reported: "
+          + warning);
+
+    }
+
+    @Test
+    @DisplayName("A module whose processes are all claimed is not reported")
+    public void claimedProcessesAreNotWarnedAbout() {
+
+      deployTwoProcessesOfOneFile(wiringReporting());
+
+      assertTrue(
+          logWatcher.list
+              .stream()
+              .map(ILoggingEvent::getFormattedMessage)
+              .noneMatch(message -> message.contains("no @WorkflowService class")),
+          "nothing to report where every deployed process is served");
+
+    }
+
+    @Test
+    @DisplayName("An adapter which does not answer the query leaves the deployment silent")
+    public void anAdapterWithoutTheQueryChangesNothing() {
+
+      // the pipeline runs without the core's wiring interface in tests exercising
+      // only the pipeline itself, and it has to stay silent then
+      final var properties = createPropertiesWithAdapter("adapter-test1");
+      when(adapter1DeploymentService.getAdapterId()).thenReturn("adapter-test1");
+      final BiFunction<String, String, Map<String, InputStream>> resourcesLoader = bpmnFilesOnly(
+          location -> Map.of("process.bpmn", createDummyBpmnInputStream()));
+      when(adapter1DeploymentService.readBpmn(anyString(), anyString(), any(InputStream.class), anyBoolean()))
+          .thenReturn(List.of(Map.entry("TestProcess", 42)));
+      when(adapter1DeploymentService.prepareBpmn(anyString(), any(), anyString(), anyString(), any()))
+          .thenReturn(100);
+
+      new DeploymentService(properties, List.of(adapter1DeploymentService), List.of())
+          .deployResources(List.of("test-module"), resourcesLoader);
+
+      assertTrue(
+          logWatcher.list
+              .stream()
+              .map(ILoggingEvent::getFormattedMessage)
+              .noneMatch(message -> message.contains("no @WorkflowService class")),
+          "no wiring interface, nothing to ask");
 
     }
 

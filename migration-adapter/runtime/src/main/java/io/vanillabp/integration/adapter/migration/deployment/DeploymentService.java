@@ -4,13 +4,11 @@ import java.io.InputStream;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.BiFunction;
 
 import io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy;
@@ -164,7 +162,9 @@ public class DeploymentService {
    * (<code>vanillabp.workflow-modules.&lt;module&gt;.workflows.&lt;bpmnProcessId&gt;</code>)
    * which match no executable BPMN process found in the module's resources are
    * reported by a WARN (not a failure - the BPMN may arrive later, e.g. during a
-   * migration) naming the known BPMN process IDs.
+   * migration) naming the known BPMN process IDs, and so are the executable BPMN
+   * processes no <code>&#64;WorkflowService</code> class claims (see
+   * {@link #reportBpmnProcessesWithoutWorkflowService(List, Map)}).
    *
    * @param workflowModuleIds The workflow module IDs to deploy
    * @param resourcesLoader Loads the resources of one location: it is given the location
@@ -182,7 +182,9 @@ public class DeploymentService {
     // systems - which the ADAPTER decides
     validateDistinctAdapterInstances();
 
-    final var knownBpmnProcessIds = new HashMap<String, Set<String>>();
+    // which file each executable BPMN process came from, per workflow module - what
+    // the reports after the deployment name so a developer can open the right file
+    final var bpmnFilesByProcessId = new HashMap<String, Map<String, String>>();
 
     // walk through all workflow modules
     workflowModuleIds
@@ -212,7 +214,7 @@ public class DeploymentService {
                 workflowModuleId,
                 deploymentService,
                 resourcesLoader,
-                knownBpmnProcessIds.computeIfAbsent(workflowModuleId, id -> new HashSet<>()));
+                bpmnFilesByProcessId.computeIfAbsent(workflowModuleId, id -> new LinkedHashMap<>()));
           } catch (final RuntimeException e) {
             final var adapterId = deploymentService.getAdapterId();
             final var policy = properties.getDeploymentFailureFor(adapterId);
@@ -238,7 +240,9 @@ public class DeploymentService {
 
     reportWorkflowModulesWithoutResources(workflowModuleIds);
 
-    warnAboutConfiguredWorkflowsUnknownToBpmnResources(workflowModuleIds, knownBpmnProcessIds);
+    warnAboutConfiguredWorkflowsUnknownToBpmnResources(workflowModuleIds, bpmnFilesByProcessId);
+
+    reportBpmnProcessesWithoutWorkflowService(workflowModuleIds, bpmnFilesByProcessId);
 
     workflowModuleIds.forEach(this::runModuleLevelChecks);
 
@@ -404,19 +408,19 @@ public class DeploymentService {
    * resources location may differ per adapter).
    *
    * @param workflowModuleIds The workflow module IDs deployed
-   * @param knownBpmnProcessIds The executable BPMN process IDs found per workflow
-   *          module
+   * @param bpmnFilesByProcessId The BPMN file each executable process was found in,
+   *          per workflow module
    */
   private void warnAboutConfiguredWorkflowsUnknownToBpmnResources(
       final List<String> workflowModuleIds,
-      final Map<String, Set<String>> knownBpmnProcessIds) {
+      final Map<String, Map<String, String>> bpmnFilesByProcessId) {
 
     workflowModuleIds.forEach(workflowModuleId -> {
       final var workflowModule = properties.getWorkflowModules().get(workflowModuleId);
       if ((workflowModule == null) || workflowModule.getWorkflows().isEmpty()) {
         return;
       }
-      final var knownProcessIds = knownBpmnProcessIds.getOrDefault(workflowModuleId, Set.of());
+      final var knownProcessIds = bpmnFilesByProcessId.getOrDefault(workflowModuleId, Map.of()).keySet();
       final var unknownConfiguredWorkflows = workflowModule
           .getWorkflows()
           .keySet()
@@ -452,6 +456,59 @@ public class DeploymentService {
   }
 
   /**
+   * Reports the executable BPMN processes of a workflow module which no
+   * <code>&#64;WorkflowService</code> class claims. A BPMN file is deployed to the BPMS
+   * as a whole, so a process drawn next to the one the application asked for travels
+   * with it, and it used to end the boot: the wiring validation found no method for its
+   * tasks and asked for a workflow service, which is the right sentence for a process
+   * the application means to serve and the wrong one for a process it does not.
+   * <p>
+   * Only a WARN, because the boot cannot tell a forgotten workflow service from a
+   * process which belongs to somebody else. What it costs is in the message, together
+   * with the two ways out.
+   *
+   * @param workflowModuleIds The workflow module IDs deployed
+   * @param bpmnFilesByProcessId The BPMN file each executable process was found in, per
+   *          workflow module
+   */
+  private void reportBpmnProcessesWithoutWorkflowService(
+      final List<String> workflowModuleIds,
+      final Map<String, Map<String, String>> bpmnFilesByProcessId) {
+
+    if (workflowTaskWiring == null) {
+      return;
+    }
+    workflowModuleIds.forEach(workflowModuleId -> {
+      final var unclaimedProcessIds = workflowTaskWiring
+          .bpmnProcessesWithoutWorkflowService(workflowModuleId);
+      if (unclaimedProcessIds.isEmpty()) {
+        return;
+      }
+      final var filesByProcessId = bpmnFilesByProcessId.getOrDefault(workflowModuleId, Map.of());
+      log.warn(
+          """
+              Workflow module '{}' deploys BPMN processes which no @WorkflowService class of this \
+              application claims:{}
+              They are deployed because a BPMN file travels to the BPMS as a whole, so a process \
+              modelled next to the one you asked for goes with it. A workflow of such a process can \
+              still be started, by a call activity of another process or by the BPMS itself, and it \
+              will not get past its first task, because no @WorkflowTask method of this application \
+              serves it. Either serve the process, by a class annotated with \
+              @WorkflowService(bpmnProcess = @BpmnProcess(bpmnProcessId = "<the process>")) holding a \
+              @WorkflowTask method per task, or take the process out of its file. Nothing to do here \
+              if another application serves it.""",
+          workflowModuleId,
+          unclaimedProcessIds
+              .stream()
+              .map(bpmnProcessId -> "\n  - process '%s' of file '%s'".formatted(
+                  bpmnProcessId,
+                  filesByProcessId.getOrDefault(bpmnProcessId, "unknown")))
+              .collect(java.util.stream.Collectors.joining()));
+    });
+
+  }
+
+  /**
    * Deploys the resources of the given workflow module using the given adapter's
    * deployment service and remembers the resulting processing context for
    * {@link #startWorkflowProcessing(List)}.
@@ -459,15 +516,15 @@ public class DeploymentService {
    * @param workflowModuleId The workflow module ID
    * @param deploymentService The deployment service to use
    * @param resourcesLoader Loads the files of one location and extension
-   * @param knownBpmnProcessIds Collects the executable BPMN process IDs found (used
-   *     to validate configured workflow IDs after all adapters were processed)
+   * @param bpmnFilesByProcessId Collects the file each executable BPMN process was
+   *     found in (used by the reports running after all adapters were processed)
    * @param <PC> The processing context, used to store all information needed by the adapter to deploy the process.
    */
   private <PC> void deployResourcesOfAdapter(
       final String workflowModuleId,
       final AdapterDeploymentService<?, PC> deploymentService,
       final BiFunction<String, String, Map<String, InputStream>> resourcesLoader,
-      final Set<String> knownBpmnProcessIds) {
+      final Map<String, String> bpmnFilesByProcessId) {
 
     // a configured location is the only one; the convention may name two (the
     // application IS the workflow module, and a module tested inside its own Maven
@@ -501,7 +558,7 @@ public class DeploymentService {
               bpmnFileEntry.getKey(), // filename
               bpmnFileEntry.getValue(), // InputStream
               resourcesLocation.vanillaBpBpmn(),
-              knownBpmnProcessIds)
+              bpmnFilesByProcessId)
               .ifPresentOrElse(
                   bpmsProcessingContext::setBpmsProcessingContext,
                   () -> log.warn(
@@ -641,7 +698,7 @@ public class DeploymentService {
    * @param filename The filename of the BPMN file (used for logging and error messages)
    * @param bpmn The BPMN resource inputstream
    * @param isVanillaBpBpmn Whether the BPMN is VanillaBP's BPMN or is specific to the adapter's BPMS
-   * @param knownBpmnProcessIds Collects the executable BPMN process IDs found
+   * @param bpmnFilesByProcessId Collects the file each executable BPMN process was found in
    * @param <BPMN> The BPMN model type
    * @param <PC> The processing context, used to store all information needed by the adapter to deploy the process
    * @return The context used to store all information needed by the adapter to deploy the process
@@ -654,7 +711,7 @@ public class DeploymentService {
       final String filename,
       final InputStream bpmn,
       final boolean isVanillaBpBpmn,
-      final Set<String> knownBpmnProcessIds) {
+      final Map<String, String> bpmnFilesByProcessId) {
 
     // read executable processes from the BPMN file
     final var executableProcesses = deploymentService.readBpmn(
@@ -672,7 +729,9 @@ public class DeploymentService {
     for (final var processIdAndModel : executableProcesses) {
       final var bpmnProcessId = processIdAndModel.getKey();
       final var bpmnModel = processIdAndModel.getValue();
-      knownBpmnProcessIds.add(bpmnProcessId);
+      // the first adapter finding the process names the file: two adapters may read
+      // the same module from locations of their own, and the message wants one name
+      bpmnFilesByProcessId.putIfAbsent(bpmnProcessId, filename);
       // ...preparing the model...
       context = deploymentService.prepareBpmn(
           workflowModuleId,

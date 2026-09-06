@@ -40,10 +40,11 @@ import java.util.Collection;
  * <p>
  * <b>What the core does on its own</b>, once the last adapter of a workflow module
  * finished deploying: {@link #validateNoUnwiredWorkflowTaskMethods(String)},
- * {@link #registerVersionsOfProcessesNobodyDeployed(String, String, java.util.function.BiFunction)}
- * and {@link #resolveProcessVersions(String)}. All three are module-level and driven by
- * what the application declared rather than by what an adapter saw, so the core knows the
- * moment and takes the duty - an adapter must NOT call them.
+ * {@link #registerVersionsOfProcessesNobodyDeployed(String, String, java.util.function.BiFunction)},
+ * {@link #resolveProcessVersions(String)} and the report about the processes
+ * {@link #bpmnProcessesWithoutWorkflowService(String)} names. All four are module-level
+ * and answered from what the application declared next to what the adapters wired, so the
+ * core knows the moment and takes the duty - an adapter must NOT call them.
  */
 public interface WorkflowTaskWiring {
 
@@ -53,16 +54,45 @@ public interface WorkflowTaskWiring {
    * unmatched tasks are collected and reported in ONE exception with guiding
    * messages. Additionally every matched method is marked as wired - the input for
    * {@link #validateNoUnwiredWorkflowTaskMethods(String)}.
+   * <p>
+   * A process NO workflow service claims is not validated at all and does not end the
+   * boot: a BPMN file travels to the BPMS as a whole, so a process drawn next to the
+   * one the application asked for is deployed with it, and demanding methods for a
+   * model somebody else owns would stop the application over a file it cannot change.
+   * Such a process is reported by the deployment instead, see
+   * {@link #bpmnProcessesWithoutWorkflowService(String)}. Call this method for every
+   * executable process of a file anyway - it is what makes the report complete.
    *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param tasks The tasks of the executable BPMN process to be wired
-   * @throws IllegalStateException If a BPMN task has no matching method
+   * @throws IllegalStateException If a BPMN task of a CLAIMED process has no matching
+   *           method
    */
   void validateTaskWiring(
       String workflowModuleId,
       String bpmnProcessId,
       Collection<BpmnTaskSpec> tasks);
+
+  /**
+   * The BPMN processes of the workflow module which
+   * {@link #validateTaskWiring(String, String, Collection)} was called for while no
+   * <code>&#64;WorkflowService</code> class of the application claims them, sorted by
+   * process id and free of duplicates however many adapters wired them.
+   * <p>
+   * The core asks this once a workflow module finished deploying, to say in ONE
+   * message what such a process costs. An adapter neither implements nor calls it -
+   * the default keeps a test double of this SPI compiling.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @return The unclaimed BPMN process IDs; empty where every wired process is served
+   */
+  default Collection<String> bpmnProcessesWithoutWorkflowService(
+      final String workflowModuleId) {
+
+    return java.util.List.of();
+
+  }
 
   /**
    * Reports the elements of a BPMN process which can put a SECOND token into a

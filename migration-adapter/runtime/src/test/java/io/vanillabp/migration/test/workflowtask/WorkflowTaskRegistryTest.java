@@ -1125,17 +1125,83 @@ public class WorkflowTaskRegistryTest {
     }
 
     @Test
-    @DisplayName("A process without any @WorkflowService fails guiding to create one")
-    public void noServiceRegisteredFails() {
+    @DisplayName("A process no @WorkflowService claims is collected for the deployment's report")
+    public void noServiceRegisteredIsCollectedRatherThanThrown() {
+
+      // a BPMN file travels to the BPMS as a whole, so a process drawn next to the one
+      // the application asked for arrives here - demanding methods for it would end the
+      // boot over a model somebody else owns
+      registry.validateTaskWiring(
+          MODULE,
+          "UnclaimedProcess",
+          List.of(new BpmnTaskSpec("Activity_1", "someTask")));
+
+      assertEquals(
+          List.of("UnclaimedProcess"),
+          List.copyOf(registry.bpmnProcessesWithoutWorkflowService(MODULE)),
+          "the deployment says once per module what such a process costs");
+
+    }
+
+    @Test
+    @DisplayName("The same unclaimed process wired by a second adapter is collected once")
+    public void anUnclaimedProcessOfTwoAdaptersIsCollectedOnce() {
+
+      registry.validateTaskWiring(MODULE, "UnclaimedProcess", List.of());
+      registry.validateTaskWiring(MODULE, "UnclaimedProcess", List.of());
+
+      assertEquals(
+          List.of("UnclaimedProcess"),
+          List.copyOf(registry.bpmnProcessesWithoutWorkflowService(MODULE)));
+
+    }
+
+    @Test
+    @DisplayName("A claimed process is not collected, and neither is an unclaimed one of another module")
+    public void onlyUnclaimedProcessesOfTheModuleAreCollected() {
+
+      registry.validateTaskWiring(
+          MODULE,
+          PROCESS,
+          List.of(new BpmnTaskSpec("Activity_1", "doSomething")));
+      registry.validateTaskWiring("other-module", "UnclaimedProcess", List.of());
+
+      assertTrue(
+          registry.bpmnProcessesWithoutWorkflowService(MODULE).isEmpty(),
+          "the module's only wired process is served");
+      assertEquals(
+          List.of("UnclaimedProcess"),
+          List.copyOf(registry.bpmnProcessesWithoutWorkflowService("other-module")));
+
+    }
+
+    @Test
+    @DisplayName("An unclaimed process leaves the reverse check as loud as it was")
+    public void anUnclaimedProcessDoesNotSilenceTheReverseCheck() {
+
+      // the module's served process is wired without 'withResolver' - and the
+      // unclaimed process next to it must not turn that orphan method into a pass
+      registry.validateTaskWiring(
+          MODULE,
+          PROCESS,
+          List.of(
+              new BpmnTaskSpec("Activity_1", "doSomething"),
+              new BpmnTaskSpec("Activity_2", "explicitDefinition"),
+              new BpmnTaskSpec("Activity_4711", "x"),
+              new BpmnTaskSpec("Activity_3", "fails"),
+              new BpmnTaskSpec("Activity_5", "bpmnError"),
+              new BpmnTaskSpec("Activity_6", "asyncTask"),
+              new BpmnTaskSpec("Activity_7", "withBindings")));
+      registry.validateTaskWiring(
+          MODULE,
+          "UnclaimedProcess",
+          List.of(new BpmnTaskSpec("Activity_9", "withResolver")));
 
       final var exception = assertThrows(
           IllegalStateException.class,
-          () -> registry.validateTaskWiring(
-              MODULE,
-              "UnknownProcess",
-              List.of(new BpmnTaskSpec("Activity_1", "someTask"))));
+          () -> registry.validateNoUnwiredWorkflowTaskMethods(MODULE));
 
-      assertTrue(exception.getMessage().contains("a @WorkflowService class responsible for this BPMN process"));
+      assertTrue(exception.getMessage().contains("withResolver"), exception.getMessage());
 
     }
 

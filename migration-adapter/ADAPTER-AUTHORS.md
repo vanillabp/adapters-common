@@ -281,7 +281,7 @@ arrives here.
 
 |                                     Call                                      |                                                                                              Why it is yours                                                                                               |
 |-------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `validateTaskWiring(module, process, tasks)`                                  | every BPMN task has to be served by a `@WorkflowTask` method; all defects are collected into one message                                                                                                   |
+| `validateTaskWiring(module, process, tasks)`                                  | every BPMN task has to be served by a `@WorkflowTask` method; all defects are collected into one message. Call it for every executable process of a file, the ones no workflow service claims included     |
 | `taskParameterNames(module, process, taskDefinition)`                         | if your BPMS ships a variable payload with a delivery, you have to know the names before you subscribe. The answer is the sorted union over the methods serving that element in different process versions |
 | `workflowTaskCompletesAsynchronously(module, process, taskDefinition)`        | refuse a wiring which cannot keep a task open, while the application boots rather than as an incident                                                                                                      |
 | `workflowsShareTheWorkflowAggregate(module, process, otherProcess)`           | a called process running on the same aggregate has to be handed the caller's identity, and one running on its own aggregate must not                                                                       |
@@ -301,7 +301,9 @@ ended up with, and the core needs that border between the model of this boot and
 
 Two module-level checks used to be the adapter's duty and are not any more.
 `validateNoUnwiredWorkflowTaskMethods` and `resolveProcessVersions` are run by the core once the
-last adapter of a workflow module finished deploying. Do not call them.
+last adapter of a workflow module finished deploying. Do not call them, and do not call
+`bpmnProcessesWithoutWorkflowService` either: the core asks that one itself, in the same moment, to
+report the processes of the module which no `@WorkflowService` class claims.
 
 The core calls one thing on you at that same moment, and it is the only call which comes back to
 your deployment service after everything was deployed: `processVersionCatalogOf(module, process)`.

@@ -347,9 +347,12 @@ contributes later, and that is the case this exists for.
 
 A class carrying the annotation without being a bean is passed over without a word. It cannot be
 told apart from a class another profile brings, and the application which really lost its handlers
-is told so further down, by the wiring validation, which compares the model the BPMS deployed
-against the handlers of this run and ends the boot naming the BPMN tasks nobody serves. That check
-knows what a class list never can.
+is told so further down, by the report the deployment writes about the BPMN processes no workflow
+service of this run claims. It names the process, what a workflow of it costs (it can be started
+and gets no further than its first task) and the two ways out, writing the workflow service or
+taking the process out of the file. What this gives up is the loudest symptom a forgotten workflow
+service used to have: it does not end the boot any more, and whoever does not read the startup log
+does not learn about it.
 
 ### 22. An idempotency key says an operation is planned once, not that it ever happened
 
