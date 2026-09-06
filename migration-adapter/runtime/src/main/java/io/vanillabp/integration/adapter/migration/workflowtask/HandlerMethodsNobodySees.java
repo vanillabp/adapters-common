@@ -25,9 +25,9 @@ import io.vanillabp.spi.service.WorkflowTask;
  * nothing.</li>
  * </ul>
  * Both end in a task nobody serves, and the message about that task says the method is
- * missing, which is the one thing the developer can see is not true. So the startup names
- * the method, the class it is declared in and the way out, and it does that from the core,
- * because a class reaches the scanners the same way on both platforms.
+ * missing, which is the one thing the developer can see is not true. So the startup names the
+ * method together with the class it is declared in and says what to do about it, and it does
+ * that from the core, because a class reaches the scanners the same way on both platforms.
  * <p>
  * What this deliberately does not do is serve those methods anyway. Reflection could lift
  * the visibility of a handler, and from the moment VanillaBP does it, which methods a
@@ -58,7 +58,7 @@ public final class HandlerMethodsNobodySees {
     final var findings = new LinkedList<String>();
     declarationsBySignature(workflowServiceClass)
         .values()
-        .forEach(declarations -> inspect(declarations, findings));
+        .forEach(declarations -> collectFindingsOfOneSignature(declarations, findings));
     if (findings.isEmpty()) {
       return null;
     }
@@ -104,7 +104,7 @@ public final class HandlerMethodsNobodySees {
    * first of them, and whether that one carries an annotation decides which of the two
    * defects this is.
    */
-  private static void inspect(
+  private static void collectFindingsOfOneSignature(
       final List<Method> declarations,
       final List<String> findings) {
 

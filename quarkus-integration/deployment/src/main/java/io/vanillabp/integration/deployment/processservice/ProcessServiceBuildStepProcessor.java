@@ -164,11 +164,11 @@ public class ProcessServiceBuildStepProcessor {
           // process IDs and make sure each class is a CDI bean at runtime
           final var workflowTaskRegistrations = new LinkedList<String>();
           for (final var service : services) {
-            final var declaringClass = service.clazz();
+            final var servingClass = service.serviceClass();
             ensureClassIsBeanBuildItemProducer
                 .produce(EnsureClassIsBeanValidationBuildItem
                     .builder()
-                    .className(declaringClass.name())
+                    .className(servingClass.name())
                     .usageDescription("Workflow service annotated with @"
                         + WorkflowService.class.getName())
                     // a bean of a subclass is a workflow service of its own here, and one
@@ -190,13 +190,13 @@ public class ProcessServiceBuildStepProcessor {
                         .methods()
                         .reason("VanillaBP scans the workflow service's methods by reflection")
                         .build()));
-            final var declaringModuleId = workflowModulesFound
+            final var moduleOfServingClass = workflowModulesFound
                 .getWorkflowModuleId(
                     applicationArchivesBuildItem,
-                    declaringClass);
-            for (final var declaredProcessId : declaredBpmnProcessIds(service.annotation(), declaringClass)) {
+                    servingClass);
+            for (final var declaredProcessId : declaredBpmnProcessIds(service.annotation(), servingClass)) {
               workflowTaskRegistrations.add(
-                  "%s|%s|%s".formatted(declaringModuleId, declaringClass.name(), declaredProcessId));
+                  "%s|%s|%s".formatted(moduleOfServingClass, servingClass.name(), declaredProcessId));
             }
           }
 
@@ -207,7 +207,7 @@ public class ProcessServiceBuildStepProcessor {
           // different ones are ambiguous and end the build.
           final var primaryService = primaryWorkflowService(services, workflowAggregateType);
           final var annotation = primaryService.annotation();
-          final var serviceClass = primaryService.clazz();
+          final var serviceClass = primaryService.serviceClass();
 
           final var workflowModuleId = workflowModulesFound
               .getWorkflowModuleId(
@@ -321,14 +321,14 @@ public class ProcessServiceBuildStepProcessor {
    * either its own <code>&#64;WorkflowService</code> or the one it inherited from a
    * superclass.
    *
-   * @param clazz The class serving the BPMN processes of the declaration
+   * @param serviceClass The class serving the BPMN processes of the declaration
    * @param annotation The declaration, whose attributes {@link java.lang.annotation.Inherited}
    *        answers on the class as well
-   * @param declaringClass The class the declaration sits on, equal to <code>clazz</code>
-   *        wherever the class carries the annotation itself
+   * @param declaringClass The class the declaration sits on, equal to
+   *        <code>serviceClass</code> wherever the class carries the annotation itself
    */
   private record WorkflowServiceClass(
-                                      ClassInfo clazz,
+                                      ClassInfo serviceClass,
                                       AnnotationInstance annotation,
                                       ClassInfo declaringClass) {
   }
@@ -432,7 +432,7 @@ public class ProcessServiceBuildStepProcessor {
       final WorkflowServiceClass service) {
 
     final var chain = new LinkedList<DotName>();
-    var current = service.clazz();
+    var current = service.serviceClass();
     while (current != null) {
       chain.add(current.name());
       if (current.name().equals(service.declaringClass().name())) {
@@ -455,7 +455,7 @@ public class ProcessServiceBuildStepProcessor {
   private static String notABeanRemedy(
       final WorkflowServiceClass service) {
 
-    if (service.clazz().name().equals(service.declaringClass().name())) {
+    if (service.serviceClass().name().equals(service.declaringClass().name())) {
       return "Please annotate it with a bean-defining annotation such as @ApplicationScoped.";
     }
     return """
@@ -695,13 +695,13 @@ public class ProcessServiceBuildStepProcessor {
     final var sorted = services
         .stream()
         .sorted(Comparator.comparing(candidate -> candidate
-            .clazz()
+            .serviceClass()
             .name()
             .toString()))
         .toList();
     final var distinctProcesses = sorted
         .stream()
-        .map(candidate -> primaryBpmnProcessId(candidate.annotation(), candidate.clazz()))
+        .map(candidate -> primaryBpmnProcessId(candidate.annotation(), candidate.serviceClass()))
         .distinct()
         .toList();
     if (distinctProcesses.size() > 1) {
@@ -709,9 +709,9 @@ public class ProcessServiceBuildStepProcessor {
           .stream()
           .map(candidate -> "  %s declares '%s'".formatted(
               candidate
-                  .clazz()
+                  .serviceClass()
                   .name(),
-              primaryBpmnProcessId(candidate.annotation(), candidate.clazz())))
+              primaryBpmnProcessId(candidate.annotation(), candidate.serviceClass())))
           .collect(java.util.stream.Collectors.joining("\n"));
       throw new IllegalStateException(
           """
