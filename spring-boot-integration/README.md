@@ -47,6 +47,22 @@ listed in compiled code: a list in a JAR is out of date the day a new adapter ap
 `NoAdapterBootTest#bootWithoutAnyAdapterYieldsGuidingMessage` holds the neighbouring case
 from the auto-configuration.
 
+## Which class is the workflow service
+
+`WorkflowServiceDiscovery` walks the bean definitions and keeps every bean whose class carries
+`@WorkflowService`, resolved with `AnnotationUtils.findAnnotation`, which walks the superclass
+chain. The class registered is the class of the BEAN, so a bean of a class extending an annotated
+one is a workflow service of its own: the annotation's attributes reach it through `@Inherited`, its
+own simple name is the BPMN process id where the annotation names none, and `getMethods()` returns
+the handler methods it declares next to the ones it inherited. Quarkus resolves the same reading
+while it builds an application, out of the Jandex index (see decision 32 in the repository's
+DECISIONS.md).
+
+`findAnnotation` reaches further than `@Inherited` does, into implemented interfaces and into
+annotations of the application's own, and those two are refused rather than registered, with the
+wording the core holds in `WorkflowServiceBelongsOnAClass`. A class annotated without being a bean
+is passed over without a word, for the reason decision 21 gives.
+
 ## Configuration binding
 
 The user-facing `vanillabp.*` configuration tree is modeled ONCE, in the

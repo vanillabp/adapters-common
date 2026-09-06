@@ -777,3 +777,41 @@ change because one such cache now exists ready-made. No entry of this log ever p
 VanillaBP ships none; the sentences which said so lived in the javadoc of `WorkflowAdapterCache`
 and in the texts which followed it, and they now point at the implementation while still saying
 that an application with different infrastructure writes its own.
+
+### 32. The workflow service is the class which serves, not the class which declares
+
+`@WorkflowService` is `@Inherited`, and what that means for VanillaBP is decided here, because four
+places rely on one answer: the Spring Boot discovery, the Quarkus build step, the scanners of the
+core and the reflective registration a native image is given.
+
+The workflow service is the class which SERVES the BPMN process. A class inheriting the annotation
+from a superclass is one of those, and the superclass is a declaration rather than a workflow
+service of its own. Everything read per workflow service is read on the serving class: the archive
+it sits in decides the workflow module, its simple name is the BPMN process id where the annotation
+names none, and its handler methods are the ones it offers, the inherited ones among them.
+
+Spring Boot arrived at that reading by itself, because it registers the class of the bean, and
+version 1 did the same. Quarkus did not: Jandex reports the class an annotation SITS on and resolves
+no `@Inherited`, so the declaration used to become the workflow service, and one source file served
+two different BPMN processes depending on the platform it ran on. Quarkus is the platform which
+moved, because VanillaBP on Quarkus exists from version 2 onwards, which was unreleased when this
+was decided, so no application had been promised the other reading.
+
+A class which is no bean serves nothing, so the workflow services are the beans. Spring Boot reads
+that set from the bean definitions (entry 21). Quarkus cannot ask ArC while it is still generating
+beans, so the build approximates the set by the classes of the family which are not abstract, and
+each of them has to be a CDI bean of its own. A bean of a subclass does not stand in for a class
+inheriting the declaration, because that subclass is a different workflow service, serving a process
+of its own wherever the id follows the class name. This is the one point where Quarkus asks more
+than Spring Boot does, and it is what keeps the set registered and the set required to be beans from
+drifting apart. It is loud rather than silent: the build names the class, the declaration it
+inherited and the ways out of it.
+
+Where several classes of one workflow aggregate come out of that walk, nothing new happens. Classes
+declaring the same process split the handlers of that process, and classes declaring different
+primary processes end the build with the message which always ended it. Two subclasses of a base
+naming no `bpmnProcess` are that second case, since each of them names its process after itself.
+
+A declaration nobody can serve is reported instead of registered. An abstract class carrying the
+annotation with no concrete subclass in the index has no class to hand a task to, and saying so is
+better than the bean question the developer used to get about a class they made abstract on purpose.

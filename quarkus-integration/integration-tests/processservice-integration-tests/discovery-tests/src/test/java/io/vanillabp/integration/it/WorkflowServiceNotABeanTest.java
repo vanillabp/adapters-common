@@ -41,7 +41,7 @@ public class WorkflowServiceNotABeanTest {
                   %s
                 was found by the VanillaBP extension as a
                   Workflow service annotated with @%s
-                but neither the class itself nor any implementation is a CDI bean.
+                but the class itself is not a CDI bean.
                 Please annotate it with a bean-defining annotation such as @ApplicationScoped."""
                 .formatted(NoBeanWorkflowService.class.getName(), WorkflowService.class.getName()),
             rootCause.getMessage());

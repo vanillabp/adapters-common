@@ -27,4 +27,23 @@ public final class EnsureClassIsBeanValidationBuildItem extends MultiBuildItem {
    */
   private final String usageDescription;
 
+  /**
+   * Whether a bean of a SUBCLASS satisfies the requirement. It does wherever VanillaBP
+   * only needs an instance it can call the class' methods on - the aggregate persistence
+   * of a workflow aggregate is that shape, and an application is free to provide it as a
+   * subclass or through a producer.
+   * <p>
+   * A workflow service is the other shape: VanillaBP registers the class ITSELF as the one
+   * serving a BPMN process, so a class which is no bean of its own serves nothing, however
+   * many of its subclasses are beans.
+   */
+  @Builder.Default
+  private final boolean aBeanOfASubclassCounts = true;
+
+  /**
+   * What to do about it, appended to the build error. Says nothing where the
+   * bean-defining annotation the default message names is the whole answer.
+   */
+  private final String remedy;
+
 }

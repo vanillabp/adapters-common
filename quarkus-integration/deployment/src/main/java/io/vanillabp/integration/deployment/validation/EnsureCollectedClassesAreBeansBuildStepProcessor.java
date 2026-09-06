@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.deployment.ValidationPhaseBuildItem;
 import io.quarkus.arc.deployment.ValidationPhaseBuildItem.ValidationErrorBuildItem;
+import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 
@@ -47,6 +48,10 @@ public class EnsureCollectedClassesAreBeansBuildStepProcessor {
    * are visible here as well). A class passes the check if any bean's set of bean types
    * contains the class. ArC's computed bean types are used on purpose: they respect
    * restrictions like {@link jakarta.enterprise.inject.Typed}.
+   * <p>
+   * A class which VanillaBP registers by its own name asks for more than that: there the
+   * bean has to BE that class, because a bean of a subclass is a different workflow
+   * service serving a BPMN process of its own.
    *
    * @param validationPhase The ArC validation phase
    * @param classIsBeanValidationBuildItems The classes collected by other build steps
@@ -69,10 +74,12 @@ public class EnsureCollectedClassesAreBeansBuildStepProcessor {
           final var requiredType = buildItem.getClassName();
           final var found = beans
               .stream()
-              .anyMatch(bean -> bean
-                  .getTypes()
-                  .stream()
-                  .anyMatch(beanType -> beanType.name().equals(requiredType)));
+              .anyMatch(bean -> buildItem.isABeanOfASubclassCounts()
+                  ? bean
+                      .getTypes()
+                      .stream()
+                      .anyMatch(beanType -> beanType.name().equals(requiredType))
+                  : isBeanOfExactly(bean, requiredType));
           if (!found) {
             validationErrors.produce(new ValidationErrorBuildItem(
                 new IllegalStateException(
@@ -81,11 +88,32 @@ public class EnsureCollectedClassesAreBeansBuildStepProcessor {
                           %s
                         was found by the VanillaBP extension as a
                           %s
-                        but neither the class itself nor any implementation is a CDI bean.
-                        Please annotate it with a bean-defining annotation such as @ApplicationScoped."""
-                        .formatted(buildItem.getClassName(), buildItem.getUsageDescription()))));
+                        but %s.
+                        %s"""
+                        .formatted(
+                            buildItem.getClassName(),
+                            buildItem.getUsageDescription(),
+                            buildItem.isABeanOfASubclassCounts()
+                                ? "neither the class itself nor any implementation is a CDI bean"
+                                : "the class itself is not a CDI bean",
+                            buildItem.getRemedy() == null
+                                ? "Please annotate it with a bean-defining annotation such as @ApplicationScoped."
+                                : buildItem.getRemedy()))));
           }
         });
+
+  }
+
+  /**
+   * Whether a bean stands for exactly the class asked about: the class ArC builds the bean
+   * from, which is the class itself for a class bean and the returned type for a producer.
+   */
+  private static boolean isBeanOfExactly(
+      final BeanInfo bean,
+      final org.jboss.jandex.DotName requiredType) {
+
+    final var implementation = bean.getImplClazz();
+    return (implementation != null) && implementation.name().equals(requiredType);
 
   }
 

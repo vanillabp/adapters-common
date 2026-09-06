@@ -6,6 +6,37 @@ applications built on VanillaBP). What an application on Camunda 7 has to config
 this is in
 [that adapter's own file](https://github.com/vanillabp/camunda7-adapter/blob/main/UPGRADE.md).
 
+## An inherited @WorkflowService means the same on both platforms (2026-09-06)
+
+`@WorkflowService` is `@Inherited`, so a class extending an annotated class is a workflow service,
+and the class VanillaBP works with is the SUBCLASS: its archive decides the workflow module, its
+simple name is the BPMN process id where the annotation names none, and its handler methods are the
+ones it offers, the ones it inherited among them. Version 1 read it that way on Spring Boot, and
+version 2 reads it that way on both platforms.
+
+**A Spring Boot application upgrading from version 1 notices nothing about this.** The discovery
+registered the class of the bean in version 1 and still does, and the BPMN process such a class
+serves is the one it always served.
+
+What it does notice is a **report about handler methods VanillaBP cannot see**, written once per
+workflow service class while the application starts. Two shapes end up there: a `@WorkflowTask`,
+`@WorkflowStartedByBpms` or `@WorkflowEnded` method which is not public, and a method overriding an
+annotated one without repeating the annotation, which Java never inherits. Neither was ever wired,
+in version 1 no more than now, and both used to surface as the wiring validation asking for a method
+the developer can point at in their own source. The report names the method and the class it is
+declared in, and says what to do about it. VanillaBP does not serve such a method: reflection could lift the
+visibility of a handler, and which methods a class offers is the decision of whoever wrote it.
+
+**For a Quarkus application built against a 2.0 snapshot**, and only for that reader, since version
+1 has no Quarkus support at all: the build used to register the class the annotation SITS on, so a
+workflow service inheriting its annotation changes the BPMN process id it serves where it relied on
+the class-name convention, and changes its workflow module where the base class sits in another JAR.
+Both are what the same source already produced on Spring Boot. An application with two subclasses of
+one base gets two workflow services where it used to get an ambiguous lookup at the first task
+delivery; where the base names no `bpmnProcess`, the two of them name two processes for one workflow
+aggregate and the build says so. A class inheriting the annotation has to be a CDI bean of its own
+now, because a bean of a subclass is a different workflow service.
+
 ## @WorkflowService on an interface ends the start with a message (2026-09-06)
 
 `@WorkflowService` belongs on the class holding the `@WorkflowTask` methods of one workflow
