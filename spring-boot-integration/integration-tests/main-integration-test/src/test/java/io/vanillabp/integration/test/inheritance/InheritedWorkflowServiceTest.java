@@ -57,6 +57,8 @@ public class InheritedWorkflowServiceTest {
 
   private static final String PROCESS = "InheritingWorkflowService";
 
+  private static final String SHARED_PROCESS = "SharedProcess";
+
   /**
    * The persistence of the two aggregates plus the transaction infrastructure a handler
    * invocation needs.
@@ -208,18 +210,137 @@ public class InheritedWorkflowServiceTest {
 
   }
 
-  private static final String APPLICATION_YAML = """
-      vanillabp:
-        adapters:
-          test:
-            type: dummy
-            test: 1
-        workflow-modules:
-          test-module:
-            adapters:
-              test:
-                resources-location: classpath*:test-module/processes/inheritance
-      """;
+  /**
+   * Two classes splitting the handlers of the process their common base names. This is the
+   * shape the refusal of an annotated interface points a developer at, so it has to work.
+   */
+  @Configuration
+  static class SharedProcessConfiguration {
+
+    static final Map<String, SharedProcessAggregate> AGGREGATES = new ConcurrentHashMap<>();
+
+    @Bean
+    AggregatePersistenceAware<SharedProcessAggregate> sharedProcessPersistence() {
+
+      return new AggregatePersistenceAware<>() {
+
+        @Override
+        public Class<SharedProcessAggregate> getAggregateClass() {
+          return SharedProcessAggregate.class;
+        }
+
+        @Override
+        public SharedProcessAggregate save(
+            final SharedProcessAggregate aggregate) {
+          AGGREGATES.put(aggregate.getId(), copyOf(aggregate));
+          return aggregate;
+        }
+
+        @Override
+        public Object getAggregateId(
+            final SharedProcessAggregate aggregate) {
+          return aggregate.getId();
+        }
+
+        @Override
+        public Class<?> getAggregateIdType() {
+          return String.class;
+        }
+
+        @Override
+        public SharedProcessAggregate loadById(
+            final Object aggregateId) {
+          final var stored = AGGREGATES.get(aggregateId);
+          return stored != null
+              ? copyOf(stored)
+              : null;
+        }
+
+      };
+
+    }
+
+    private static SharedProcessAggregate copyOf(
+        final SharedProcessAggregate aggregate) {
+
+      final var copy = new SharedProcessAggregate();
+      copy.setId(aggregate.getId());
+      copy.setServedBy(aggregate.getServedBy());
+      return copy;
+
+    }
+
+    @Bean
+    DataSource sharedProcessDataSource() {
+
+      return new EmbeddedDatabaseBuilder()
+          .setType(EmbeddedDatabaseType.H2)
+          .generateUniqueName(true)
+          .build();
+
+    }
+
+    @Bean
+    PlatformTransactionManager transactionManager(
+        final DataSource sharedProcessDataSource) {
+
+      return new DataSourceTransactionManager(sharedProcessDataSource);
+
+    }
+
+    @Bean
+    DummyTaskWiringSource sharedProcessWiringSource() {
+
+      return (
+          adapterId,
+          workflowModuleId,
+          bpmnProcessId) -> SHARED_PROCESS.equals(bpmnProcessId)
+              ? List.of(
+                  new BpmnTaskSpec("Activity_First", "firstHalf"),
+                  new BpmnTaskSpec("Activity_Second", "secondHalf"))
+              : List.of();
+
+    }
+
+    @Bean
+    HandlersOfTheFirstHalf handlersOfTheFirstHalf() {
+
+      return new HandlersOfTheFirstHalf();
+
+    }
+
+    @Bean
+    HandlersOfTheSecondHalf handlersOfTheSecondHalf() {
+
+      return new HandlersOfTheSecondHalf();
+
+    }
+
+  }
+
+  /**
+   * Each scenario deploys BPMN files of its own, so each brings its own resources location:
+   * a process no workflow service of the running application claims would otherwise be
+   * reported for every application here.
+   */
+  private static String applicationYaml(
+      final String resourcesLocation) {
+
+    return """
+        vanillabp:
+          adapters:
+            test:
+              type: dummy
+              test: 1
+          workflow-modules:
+            test-module:
+              adapters:
+                test:
+                  resources-location: classpath*:test-module/processes/%s
+        """
+        .formatted(resourcesLocation);
+
+  }
 
   private ConfigurableApplicationContext runTestApplication(
       final SpringBootTestApplication testApp,
@@ -239,11 +360,12 @@ public class InheritedWorkflowServiceTest {
 
   }
 
-  private SpringBootTestApplication buildTestApp() throws IOException {
+  private SpringBootTestApplication buildTestApp(
+      final String resourcesLocation) throws IOException {
 
     return SpringBootTestApplication.builder()
         .addResource("META-INF/workflow-module")
-        .addResource("application.yaml", APPLICATION_YAML)
+        .addResource("application.yaml", applicationYaml(resourcesLocation))
         .hideResource("META-INF/workflow-module")
         .hideResource("application.yaml")
         .build();
@@ -251,7 +373,8 @@ public class InheritedWorkflowServiceTest {
   }
 
   private static TaskInvocationContext context(
-      final String taskDefinition) {
+      final String taskDefinition,
+      final String aggregateId) {
 
     return new TaskInvocationContext() {
 
@@ -262,7 +385,7 @@ public class InheritedWorkflowServiceTest {
 
       @Override
       public String getWorkflowAggregateId() {
-        return "4711";
+        return aggregateId;
       }
 
     };
@@ -275,7 +398,8 @@ public class InheritedWorkflowServiceTest {
 
     InheritanceConfiguration.AGGREGATES.clear();
 
-    try (var testApp = buildTestApp(); var context = runTestApplication(testApp, InheritanceConfiguration.class)) {
+    try (var testApp = buildTestApp("inheritance"); var context = runTestApplication(testApp,
+        InheritanceConfiguration.class)) {
 
       final var processService = (ProcessService<?>) context
           .getBeanProvider(org.springframework.core.ResolvableType
@@ -291,10 +415,10 @@ public class InheritedWorkflowServiceTest {
       final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
       Assertions.assertEquals(
           WorkflowTaskOutcome.Kind.COMPLETED,
-          dummyAdapter.invokeTask(MODULE, PROCESS, context("ownTask")).kind());
+          dummyAdapter.invokeTask(MODULE, PROCESS, context("ownTask", "4711")).kind());
       Assertions.assertEquals(
           WorkflowTaskOutcome.Kind.COMPLETED,
-          dummyAdapter.invokeTask(MODULE, PROCESS, context("inheritedTask")).kind());
+          dummyAdapter.invokeTask(MODULE, PROCESS, context("inheritedTask", "4711")).kind());
       Assertions.assertEquals(
           "nobody+ownTask+inheritedTask",
           InheritanceConfiguration.AGGREGATES.get("4711").getServedBy());
@@ -308,7 +432,7 @@ public class InheritedWorkflowServiceTest {
   public void bothInvisibleHandlersAreReported(
       final CapturedOutput output) throws IOException {
 
-    try (var testApp = buildTestApp(); var context = runTestApplication(testApp,
+    try (var testApp = buildTestApp("inheritance"); var context = runTestApplication(testApp,
         InvisibleHandlersConfiguration.class,
         TestTransactionRunnerConfiguration.class)) {
 
@@ -324,6 +448,36 @@ public class InheritedWorkflowServiceTest {
       Assertions.assertTrue(reported.contains(OverriddenHandlerBase.class.getName()), reported);
       Assertions.assertTrue(reported.contains("carries no annotation of its own"), reported);
       Assertions.assertTrue(reported.contains("Repeat the annotation on the override"), reported);
+
+    }
+
+  }
+
+
+  @Test
+  @DisplayName("Two subclasses of one base split the handlers of the process the base names")
+  public void twoSubclassesShareTheProcessOfTheirBase() throws IOException {
+
+    SharedProcessConfiguration.AGGREGATES.clear();
+
+    try (var testApp = buildTestApp("inheritance-shared"); var context = runTestApplication(testApp,
+        SharedProcessConfiguration.class)) {
+
+      final var seeded = new SharedProcessAggregate();
+      seeded.setId("4712");
+      seeded.setServedBy("nobody");
+      SharedProcessConfiguration.AGGREGATES.put("4712", seeded);
+
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      Assertions.assertEquals(
+          WorkflowTaskOutcome.Kind.COMPLETED,
+          dummyAdapter.invokeTask(MODULE, SHARED_PROCESS, context("firstHalf", "4712")).kind());
+      Assertions.assertEquals(
+          WorkflowTaskOutcome.Kind.COMPLETED,
+          dummyAdapter.invokeTask(MODULE, SHARED_PROCESS, context("secondHalf", "4712")).kind());
+      Assertions.assertEquals(
+          "nobody+firstHalf+secondHalf",
+          SharedProcessConfiguration.AGGREGATES.get("4712").getServedBy());
 
     }
 
