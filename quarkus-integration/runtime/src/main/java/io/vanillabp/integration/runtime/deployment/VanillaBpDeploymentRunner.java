@@ -118,9 +118,14 @@ public class VanillaBpDeploymentRunner {
   Instance<ProcessService<?>> processServices;
 
   /**
-   * The core's wiring interface - handed to the {@link DeploymentService} for the two
-   * module-level checks the core runs itself once the last adapter of a workflow module
-   * finished deploying, rather than leaving them to an adapter which can forget them.
+   * The core's wiring interface - handed to the {@link DeploymentService} for what
+   * belongs to a workflow module as a whole and is answered once the last adapter of
+   * the module finished deploying: the deployed processes no
+   * <code>&#64;WorkflowService</code> class claims, the versions a BPMS still holds for
+   * a process id the application only declares, the
+   * <code>&#64;WorkflowTask</code> methods serving no task at all and the version tags
+   * the annotations name. The core runs them rather than leaving them to an adapter
+   * which can forget them.
    */
   @Inject
   io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskWiring;

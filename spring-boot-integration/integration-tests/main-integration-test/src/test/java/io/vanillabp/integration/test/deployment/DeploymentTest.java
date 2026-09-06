@@ -47,7 +47,8 @@ public class DeploymentTest {
         final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskWiring) {
 
       // the wiring interface goes in, like the platform's own auto-configuration does:
-      // the two module-level checks are the core's duty since the SPI was split
+      // what belongs to a workflow module as a whole is the core's duty, and a
+      // deployment service built without the interface skips all of it
       final var deploymentService = new DeploymentService(
           properties, deploymentServices, wiringServices, workflowTaskWiring);
 

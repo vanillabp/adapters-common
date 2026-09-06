@@ -57,8 +57,11 @@ public class DeploymentAutoConfiguration {
         .stream()
         .toList();
 
-    // the wiring interface goes in as well: the two module-level checks nobody has to
-    // remember are the core's own duty, not an adapter's
+    // the wiring interface goes in as well: what belongs to a workflow module as a
+    // whole is the core's own duty, not an adapter's - the deployed processes no
+    // @WorkflowService class claims, the versions a BPMS still holds for a process id
+    // the application only declares, the @WorkflowTask methods serving no task at all
+    // and the version tags the annotations name
     final var deploymentService = new DeploymentService(
         properties, deploymentServices, wiringServices, workflowTaskWiring);
 

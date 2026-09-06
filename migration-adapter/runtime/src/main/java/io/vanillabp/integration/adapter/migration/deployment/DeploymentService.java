@@ -276,7 +276,9 @@ public class DeploymentService {
     // them to tell a method kept for a renamed process from one wired to nothing
     askAdaptersAboutProcessesNobodyDeployed(workflowModuleId);
     // then the reverse wiring check, because a method serving no task at all is the
-    // more basic defect, then the version resolution, which only warns
+    // more basic defect than two methods serving the same one in overlapping version
+    // ranges, which is what the version resolution ends the boot over once the tags
+    // are placed
     workflowTaskWiring.validateNoUnwiredWorkflowTaskMethods(workflowModuleId);
     workflowTaskWiring.resolveProcessVersions(workflowModuleId);
 
