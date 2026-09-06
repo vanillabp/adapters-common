@@ -3,6 +3,7 @@ package io.vanillabp.integration.deployment.processservice;
 import static io.quarkus.gizmo.Type.classType;
 import static io.quarkus.gizmo.Type.parameterizedType;
 
+import java.lang.reflect.Modifier;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -136,51 +137,64 @@ public class ProcessServiceBuildStepProcessor {
     // question about CDI beans
     refuseAnnotationsNotOnAClass(combinedIndex.getIndex(), workflowServiceAnnotations);
 
-    final var annotationsByAggregate = new LinkedHashMap<Type, List<AnnotationInstance>>();
-    workflowServiceAnnotations
-        .forEach(annotation -> annotationsByAggregate
+    // an annotated class is a DECLARATION, and @Inherited says that every subclass of it
+    // is a workflow service of its own. Jandex reports the declaration sites, so the
+    // classes which will serve the processes are resolved here, while the index can still
+    // be asked who extends whom
+    final var workflowServices = workflowServiceClassesOf(combinedIndex.getIndex(), workflowServiceAnnotations);
+
+    final var servicesByAggregate = new LinkedHashMap<Type, List<WorkflowServiceClass>>();
+    workflowServices
+        .forEach(service -> servicesByAggregate
             .computeIfAbsent(
-                annotation
+                service
+                    .annotation()
                     .value(ANNOTATION_WORKFLOWSERVICE_ATTRIBUTE_AGGREGATECLASS)
                     .asClass(),
                 aggregateType -> new LinkedList<>())
-            .add(annotation));
+            .add(service));
 
-    annotationsByAggregate
+    servicesByAggregate
         // and build an adapter-aware process service for each workflow aggregate class
         .forEach((
             workflowAggregateType,
-            annotations) -> {
+            services) -> {
 
           // record every class of this aggregate under all its declared BPMN
           // process IDs and make sure each class is a CDI bean at runtime
           final var workflowTaskRegistrations = new LinkedList<String>();
-          for (final var declaringAnnotation : annotations) {
-            final var declaringClass = declaringAnnotation.target().asClass();
+          for (final var service : services) {
+            final var declaringClass = service.clazz();
             ensureClassIsBeanBuildItemProducer
                 .produce(EnsureClassIsBeanValidationBuildItem
                     .builder()
                     .className(declaringClass.name())
                     .usageDescription("Workflow service annotated with @"
                         + WorkflowService.class.getName())
+                    // a bean of a subclass is a workflow service of its own here, and one
+                    // serving a BPMN process of its own wherever the process ID follows the
+                    // class name - so it cannot stand in for this class
+                    .aBeanOfASubclassCounts(false)
+                    .remedy(notABeanRemedy(service))
                     .build());
             // the core finds the @WorkflowTask, @WorkflowStartedByBpms and @WorkflowEnded
             // methods by scanning the class at RUNTIME, and a native image reflects only
             // on what it was told about - without this every BPMN process is reported as
-            // incompletely wired at startup, although the methods are right there
-            reflectiveClassBuildItemProducer
-                .produce(ReflectiveClassBuildItem
-                    .builder(declaringClass
-                        .name()
-                        .toString())
-                    .methods()
-                    .reason("VanillaBP scans the workflow service's methods by reflection")
-                    .build());
+            // incompletely wired at startup, although the methods are right there. The
+            // superclasses come along, because a handler the class inherits is declared
+            // there and nowhere else
+            declarationChainOf(combinedIndex.getIndex(), service)
+                .forEach(scannedClass -> reflectiveClassBuildItemProducer
+                    .produce(ReflectiveClassBuildItem
+                        .builder(scannedClass.toString())
+                        .methods()
+                        .reason("VanillaBP scans the workflow service's methods by reflection")
+                        .build()));
             final var declaringModuleId = workflowModulesFound
                 .getWorkflowModuleId(
                     applicationArchivesBuildItem,
                     declaringClass);
-            for (final var declaredProcessId : declaredBpmnProcessIds(declaringAnnotation, declaringClass)) {
+            for (final var declaredProcessId : declaredBpmnProcessIds(service.annotation(), declaringClass)) {
               workflowTaskRegistrations.add(
                   "%s|%s|%s".formatted(declaringModuleId, declaringClass.name(), declaredProcessId));
             }
@@ -191,8 +205,9 @@ public class ProcessServiceBuildStepProcessor {
           // to be whichever class was found first. Several classes
           // declaring the SAME process are fine (handlers split across classes),
           // different ones are ambiguous and end the build.
-          final var annotation = primaryWorkflowServiceAnnotation(annotations, workflowAggregateType);
-          final var serviceClass = annotation.target().asClass();
+          final var primaryService = primaryWorkflowService(services, workflowAggregateType);
+          final var annotation = primaryService.annotation();
+          final var serviceClass = primaryService.clazz();
 
           final var workflowModuleId = workflowModulesFound
               .getWorkflowModuleId(
@@ -298,6 +313,181 @@ public class ProcessServiceBuildStepProcessor {
               String.join(";", workflowTaskRegistrations));
 
         });
+
+  }
+
+  /**
+   * One class which IS a workflow service, together with the declaration it is one by:
+   * either its own <code>&#64;WorkflowService</code> or the one it inherited from a
+   * superclass.
+   *
+   * @param clazz The class serving the BPMN processes of the declaration
+   * @param annotation The declaration, whose attributes {@link java.lang.annotation.Inherited}
+   *        answers on the class as well
+   * @param declaringClass The class the declaration sits on, equal to <code>clazz</code>
+   *        wherever the class carries the annotation itself
+   */
+  private record WorkflowServiceClass(
+                                      ClassInfo clazz,
+                                      AnnotationInstance annotation,
+                                      ClassInfo declaringClass) {
+  }
+
+  /**
+   * The classes which serve the BPMN processes of the declarations found, which is what
+   * <code>&#64;Inherited</code> promises the developer: a subclass of an annotated class is a
+   * workflow service, and the class the handler methods are read off is the SUBCLASS. Jandex
+   * resolves no <code>&#64;Inherited</code>, so the walk down to the subclasses happens here,
+   * where the index can still be asked - and it is the same reading Spring Boot arrives at by
+   * registering the class of the bean.
+   * <p>
+   * Abstract classes are left out: VanillaBP asks CDI for an instance of a workflow service, so
+   * a class nobody can instantiate serves nothing. A declaration whose whole family is abstract
+   * is therefore a declaration nobody serves, and the build ends naming it.
+   *
+   * @param index The index of the application and its indexed dependencies
+   * @param annotations Every <code>&#64;WorkflowService</code> of the application archives
+   * @return The workflow service classes, each of them once
+   * @throws IllegalStateException If a declaration has no class which could serve it
+   */
+  private static List<WorkflowServiceClass> workflowServiceClassesOf(
+      final IndexView index,
+      final List<AnnotationInstance> annotations) {
+
+    final var byClassName = new LinkedHashMap<DotName, WorkflowServiceClass>();
+    final var declarationsNobodyServes = new LinkedHashMap<DotName, ClassInfo>();
+    for (final var annotation : annotations) {
+      final var declaringClass = annotation.target().asClass();
+      final var serviceClasses = new LinkedList<ClassInfo>();
+      if (!Modifier.isAbstract(declaringClass.flags())) {
+        serviceClasses.add(declaringClass);
+      }
+      index
+          .getAllKnownSubclasses(declaringClass.name())
+          .stream()
+          .filter(subclass -> !Modifier.isAbstract(subclass.flags()))
+          .sorted(Comparator.comparing(subclass -> subclass.name().toString()))
+          .forEach(serviceClasses::add);
+      if (serviceClasses.isEmpty()) {
+        declarationsNobodyServes.putIfAbsent(declaringClass.name(), declaringClass);
+        continue;
+      }
+      for (final var serviceClass : serviceClasses) {
+        final var known = byClassName.get(serviceClass.name());
+        // a class inherits the annotation of its NEAREST annotated superclass, and its own
+        // one - distance zero - replaces everything it inherited
+        if ((known == null) || (inheritanceDistance(index, serviceClass,
+            declaringClass.name()) < inheritanceDistance(index, serviceClass, known.declaringClass().name()))) {
+          byClassName.put(
+              serviceClass.name(),
+              new WorkflowServiceClass(serviceClass, annotation, declaringClass));
+        }
+      }
+    }
+    if (!declarationsNobodyServes.isEmpty()) {
+      throw new IllegalStateException(declarationsNobodyServes
+          .values()
+          .stream()
+          .map(ProcessServiceBuildStepProcessor::declarationNobodyServesMessage)
+          .collect(java.util.stream.Collectors.joining("\n")));
+    }
+    return List.copyOf(byClassName.values());
+
+  }
+
+  /**
+   * How many superclasses lie between a class and the one carrying the declaration it serves,
+   * zero where the class carries the declaration itself and
+   * {@link Integer#MAX_VALUE} where the index does not connect the two.
+   */
+  private static int inheritanceDistance(
+      final IndexView index,
+      final ClassInfo serviceClass,
+      final DotName declaringClassName) {
+
+    var distance = 0;
+    var current = serviceClass;
+    while (current != null) {
+      if (current.name().equals(declaringClassName)) {
+        return distance;
+      }
+      final var superClass = current.superClassType();
+      if (superClass == null) {
+        return Integer.MAX_VALUE;
+      }
+      current = index.getClassByName(superClass.name());
+      distance++;
+    }
+    return Integer.MAX_VALUE;
+
+  }
+
+  /**
+   * The class and every superclass up to the one carrying the declaration: the handler
+   * methods of a workflow service may be declared in any of them, and a native image reflects
+   * only on what it was told about.
+   */
+  private static List<DotName> declarationChainOf(
+      final IndexView index,
+      final WorkflowServiceClass service) {
+
+    final var chain = new LinkedList<DotName>();
+    var current = service.clazz();
+    while (current != null) {
+      chain.add(current.name());
+      if (current.name().equals(service.declaringClass().name())) {
+        break;
+      }
+      final var superClass = current.superClassType();
+      current = superClass == null
+          ? null
+          : index.getClassByName(superClass.name());
+    }
+    return chain;
+
+  }
+
+  /**
+   * What to do about a workflow service class which is no CDI bean, which reads differently for
+   * a class inheriting its declaration: there the developer may not have meant this class to be
+   * a workflow service at all.
+   */
+  private static String notABeanRemedy(
+      final WorkflowServiceClass service) {
+
+    if (service.clazz().name().equals(service.declaringClass().name())) {
+      return "Please annotate it with a bean-defining annotation such as @ApplicationScoped.";
+    }
+    return """
+        It inherits @WorkflowService from
+          %s
+        and @WorkflowService is @Inherited, so this class is a workflow service of its own and \
+        VanillaBP asks CDI for an instance of THIS class. Either annotate it with a \
+        bean-defining annotation such as @ApplicationScoped, or, where it is meant to carry the \
+        declaration only, make it abstract. Where it is no workflow service at all, let it \
+        extend a class which does not carry the annotation."""
+        .formatted(service.declaringClass().name());
+
+  }
+
+  /**
+   * The message ending the build where a declaration has no class which could serve it.
+   */
+  private static String declarationNobodyServesMessage(
+      final ClassInfo declaringClass) {
+
+    return """
+        @WorkflowService sits on the class
+          %s
+        which is abstract, and no class of this application extends it.
+        VanillaBP reads the handler methods off the workflow service class and asks CDI for an \
+        instance of it, so an abstract declaration reaches a BPMN process through a subclass \
+        only: @WorkflowService is @Inherited, which makes every subclass of an annotated class a \
+        workflow service of its own. Either write that subclass and make it a CDI bean, or move \
+        the annotation onto the class holding the handler methods. If the subclass does exist, \
+        the build did not see it: classes of a workflow module in its own Maven module have to be \
+        indexed to be seen (see the jandex-maven-plugin)."""
+        .formatted(declaringClass.name());
 
   }
 
@@ -485,34 +675,33 @@ public class ProcessServiceBuildStepProcessor {
   }
 
   /**
-   * The annotation declaring the process of the aggregate's process service.
+   * The workflow service class declaring the process of the aggregate's process service.
    *
-   * @param annotations All {@code @WorkflowService} annotations of this aggregate
+   * @param services All workflow service classes of this aggregate
    * @param workflowAggregateType The aggregate
-   * @return The annotation whose primary BPMN process the process service serves
+   * @return The class whose primary BPMN process the process service serves
    * @throws IllegalStateException If the classes declare different primary processes
    *         for one aggregate - which of them {@code startWorkflow} would start
    *         cannot be decided here (the BPMN models are read later, by the adapter,
    *         while deploying), so the application decides it by naming one process as
    *         the primary one and the others as secondary
    */
-  private static AnnotationInstance primaryWorkflowServiceAnnotation(
-      final List<AnnotationInstance> annotations,
+  private static WorkflowServiceClass primaryWorkflowService(
+      final List<WorkflowServiceClass> services,
       final Type workflowAggregateType) {
 
     // reproducible: with several classes on one process the choice must not depend on
     // the order the archives happened to be scanned in
-    final var sorted = annotations
+    final var sorted = services
         .stream()
         .sorted(Comparator.comparing(candidate -> candidate
-            .target()
-            .asClass()
+            .clazz()
             .name()
             .toString()))
         .toList();
     final var distinctProcesses = sorted
         .stream()
-        .map(candidate -> primaryBpmnProcessId(candidate, candidate.target().asClass()))
+        .map(candidate -> primaryBpmnProcessId(candidate.annotation(), candidate.clazz()))
         .distinct()
         .toList();
     if (distinctProcesses.size() > 1) {
@@ -520,15 +709,14 @@ public class ProcessServiceBuildStepProcessor {
           .stream()
           .map(candidate -> "  %s declares '%s'".formatted(
               candidate
-                  .target()
-                  .asClass()
+                  .clazz()
                   .name(),
-              primaryBpmnProcessId(candidate, candidate.target().asClass())))
+              primaryBpmnProcessId(candidate.annotation(), candidate.clazz())))
           .collect(java.util.stream.Collectors.joining("\n"));
       throw new IllegalStateException(
           """
-              Several classes annotated with @WorkflowService declare a DIFFERENT BPMN process for \
-              the workflow aggregate '%s':
+              Several workflow service classes declare a DIFFERENT BPMN process for the workflow \
+              aggregate '%s':
               %s
               VanillaBP provides one ProcessService per workflow aggregate (that is what \
               'ProcessService<%s>' injects), so exactly one of these processes is the one \
@@ -536,7 +724,10 @@ public class ProcessServiceBuildStepProcessor {
               Declare the process to be started as the 'bpmnProcess' of ONE class and move the \
               others into that class' 'secondaryBpmnProcesses' (a process called by a call \
               activity is the typical case). Handlers of a secondary process may stay in their own \
-              class as long as that class declares the same 'bpmnProcess'."""
+              class as long as that class declares the same 'bpmnProcess'.
+              A class inheriting @WorkflowService from a superclass is one of these classes too, \
+              and without an explicit 'bpmnProcess' each of them names its process after ITSELF - \
+              so several subclasses of one annotated base need that 'bpmnProcess' on the base."""
               .formatted(
                   workflowAggregateType.name(),
                   declarations,

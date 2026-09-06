@@ -1,0 +1,14 @@
+quarkus:
+  datasource:
+    db-kind: h2
+    jdbc:
+      url: jdbc:h2:mem:inheritance;DB_CLOSE_DELAY=-1
+vanillabp:
+  adapters:
+    demo1:
+      type: dummy
+  workflow-modules:
+    inheritance-module:
+      adapters:
+        demo1:
+          resources-location: classpath:processes/dummy

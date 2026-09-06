@@ -141,6 +141,15 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
   private final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties;
 
   /**
+   * The workflow service classes whose handler methods were already looked over for the
+   * two ways of writing one which nobody can see (see {@link HandlerMethodsNobodySees}).
+   * A class arrives here once per BPMN process it declares, and the report is about the
+   * class rather than about the process, so it is written once.
+   */
+  private final java.util.Set<Class<?>> classesLookedOverForInvisibleHandlers = java.util.concurrent.ConcurrentHashMap
+      .newKeySet();
+
+  /**
    * The process versions this application declares obsolete.
    */
   private final OutfadedProcessVersions outfadedVersions;
@@ -228,6 +237,8 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
       aggregateSync.validateSyncModel(processService.getWorkflowAggregateClass());
     }
 
+    reportHandlerMethodsNobodySees(workflowServiceClass);
+
     // which generation of the model this class serves for THIS process - the methods
     // naming no version of their own serve it, which is how one class per generation
     // works without repeating the range on every method
@@ -295,6 +306,29 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
             processService.getWorkflowAggregateClass(),
             workflowServiceBean,
             inherited);
+
+  }
+
+  /**
+   * Writes the report about the handler methods of a workflow service class which the scan
+   * cannot reach, once per class. It is a WARN rather than the end of the boot: an
+   * application whose BPMN model really carries the task such a method was meant to serve
+   * does not start anyway, because the wiring validation asks for a method it does not
+   * find, and this is the sentence which says why that method is not there although the
+   * developer can read it in their own source.
+   *
+   * @param workflowServiceClass The class about to be scanned for handlers
+   */
+  private void reportHandlerMethodsNobodySees(
+      final Class<?> workflowServiceClass) {
+
+    if (!classesLookedOverForInvisibleHandlers.add(workflowServiceClass)) {
+      return;
+    }
+    final var report = HandlerMethodsNobodySees.reportFor(workflowServiceClass);
+    if (report != null) {
+      log.warn(report);
+    }
 
   }
 

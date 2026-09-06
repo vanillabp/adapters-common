@@ -9,7 +9,9 @@ import java.util.stream.Collectors;
  * annotation of the application's own carrying <code>&#64;WorkflowService</code>.
  * <p>
  * Neither of the two is what <code>&#64;Inherited</code> covers. A subclass of an annotated
- * class IS a workflow service and stays one. An implementing class is not, because Java
+ * class IS a workflow service and stays one, on both platforms: it is the class the handler
+ * methods are read off, the class named when a BPMN process ID follows the class name, and the
+ * class whose archive decides the workflow module. An implementing class is not, because Java
  * does not inherit method annotations from an interface, so the
  * <code>&#64;WorkflowTask</code> methods of interface and implementation are two different
  * sets and the platforms do not read the same one: Spring Boot reads the bean's class,
@@ -32,7 +34,9 @@ public final class WorkflowServiceBelongsOnAClass {
       Move @WorkflowService onto the class holding the @WorkflowTask methods of this workflow \
       aggregate. Where several classes are meant to share one declaration, put it on a common \
       superclass: @WorkflowService is @Inherited, so every subclass of an annotated class is a \
-      workflow service of the same BPMN process.""";
+      workflow service of its own, reading the declaration off the superclass. Name the \
+      'bpmnProcess' on that superclass where the subclasses are meant to serve ONE process - \
+      without it each subclass names its process after itself.""";
 
   private WorkflowServiceBelongsOnAClass() {
   }
