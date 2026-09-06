@@ -1,0 +1,7 @@
+name: vanillabp-bpms-double
+artifact: "${project.groupId}:${project.artifactId}:${project.version}"
+dependencies:
+  - vanillabp
+capabilities:
+  provides:
+    - io.vanillabp.adapter.dummy

@@ -2,7 +2,7 @@ package io.vanillabp.integration.test.deployment;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 
-import io.vanillabp.adapter.dummy.runtime.DummyDeploymentListener;
+import io.vanillabp.bpmsdouble.DummyDeploymentListener;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**

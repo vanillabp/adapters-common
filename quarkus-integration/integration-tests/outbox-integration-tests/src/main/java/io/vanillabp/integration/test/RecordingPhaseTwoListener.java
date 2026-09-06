@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import io.vanillabp.adapter.dummy.runtime.DummyPhaseTwoListener;
+import io.vanillabp.bpmsdouble.DummyPhaseTwoListener;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**
@@ -37,7 +37,7 @@ public class RecordingPhaseTwoListener implements DummyPhaseTwoListener {
     invocations.add(workflowAggregateId);
     if (failuresRemaining.getAndUpdate(remaining -> remaining > 0 ? remaining - 1 : 0) > 0) {
       if (failPermanently) {
-        throw new io.vanillabp.adapter.dummy.runtime.DummyPermanentFailure(
+        throw new io.vanillabp.bpmsdouble.DummyPermanentFailure(
             "phase two failed permanently for testing purposes");
       }
       throw new RuntimeException("phase two failed for testing purposes");

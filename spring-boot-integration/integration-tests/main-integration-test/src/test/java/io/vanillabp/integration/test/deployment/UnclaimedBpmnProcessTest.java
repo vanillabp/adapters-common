@@ -14,9 +14,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Service;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyTaskWiringSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
@@ -334,7 +334,7 @@ public class UnclaimedBpmnProcessTest {
       TwoProcessesConfiguration.AGGREGATES.put("4711", aggregate);
       final var dummyAdapter = context.getBean(
           "DummyAdapter_DeploymentService_test",
-          io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService.class);
+          io.vanillabp.bpmsdouble.DummyDeploymentService.class);
       final var outcome = dummyAdapter.invokeTask(MODULE, "Calling", new TaskInvocationContext() {
 
         @Override

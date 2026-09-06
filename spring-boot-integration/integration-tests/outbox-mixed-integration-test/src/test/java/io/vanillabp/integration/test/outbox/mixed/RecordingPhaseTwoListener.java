@@ -4,13 +4,13 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterPhaseTwoListener;
+import io.vanillabp.bpmsdouble.DummyPhaseTwoListener;
 
 /**
  * Records phase-two invocations of the dummy adapter and optionally fails a
  * configurable number of dispatches (to test retry behavior of the outbox).
  */
-public class RecordingPhaseTwoListener implements DummyAdapterPhaseTwoListener {
+public class RecordingPhaseTwoListener implements DummyPhaseTwoListener {
 
   private final List<Object> invocations = new CopyOnWriteArrayList<>();
 

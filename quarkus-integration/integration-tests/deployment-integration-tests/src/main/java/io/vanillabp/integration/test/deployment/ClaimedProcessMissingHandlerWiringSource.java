@@ -3,7 +3,7 @@ package io.vanillabp.integration.test.deployment;
 import java.util.Collection;
 import java.util.List;
 
-import io.vanillabp.adapter.dummy.runtime.DummyTaskWiringSource;
+import io.vanillabp.bpmsdouble.DummyTaskWiringSource;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import jakarta.enterprise.context.ApplicationScoped;
 

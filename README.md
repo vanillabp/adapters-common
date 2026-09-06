@@ -98,6 +98,10 @@ Top-level modules (by directory name) are:
    which prints while it passes (`@PrintsWhenPassing`).
 6. **test-utils:**<br>
    A small module providing utilities used by tests across all platforms.
+7. **bpms-double:**<br>
+   The BPMS double, published so that a repository outside this one can boot a VanillaBP application in a test
+   without a real BPMS. It is the adapter the platform's own tests run against, which is what proves it for
+   outsiders. [Details...](./bpms-double)
 
 ### Implementation
 
@@ -153,7 +157,7 @@ They are not the citation targets of the code: what a comment points at is an en
    again; operations are keyed for idempotency and residual windows are documented rather than hidden.
 6. **Never read state back from the BPMS into the aggregate.** The aggregate is the single source of truth; the only
    values read from a BPMS are those a `@TaskParam` explicitly asks for.
-7. **Tests: acceptance tests first**, per platform, with the dummy adapter as the BPMS double; coverage is measured
+7. **Tests: acceptance tests first**, per platform, against the published [BPMS double](./bpms-double); coverage is measured
    separately per platform (>90% of instructions, enforced by `test-coverage-report/coverage-gate`). A story is proven
    by its acceptance test, not by unit coverage.
 8. **A sentence which promises behavior is part of the behavior.** A javadoc, `README.md` or wiki sentence promising

@@ -20,10 +20,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyTaskWiringSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
@@ -277,7 +277,7 @@ public class ApplicationTransactionTest {
 
     try (var testApp = buildTestApp(); var context = runTestApplication(testApp)) {
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
 
       // (a) the shape of a remote BPMS: VanillaBP opens its own transaction, the
       // nested bean joins it and takes it down with the TaskException

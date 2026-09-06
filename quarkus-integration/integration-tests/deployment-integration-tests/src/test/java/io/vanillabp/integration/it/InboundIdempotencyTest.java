@@ -24,7 +24,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.quarkus.test.QuarkusExtensionTest;
-import io.vanillabp.adapter.dummy.runtime.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
 import io.vanillabp.integration.adapter.migration.delivery.JdbcTaskDeliveryStore;
 import io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;

@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.OptimisticLockingFailureException;
 
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
 import io.vanillabp.integration.adapter.migration.transaction.AggregateWrite;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
@@ -43,7 +43,7 @@ public class AggregateWriteConflictTest {
   private ConflictAggregateRepository repository;
 
   @Autowired
-  private DeploymentService dummyAdapter;
+  private DummyDeploymentService dummyAdapter;
 
   @Test
   @DisplayName("A version conflict in VanillaBP's own commit is named and reaches the adapter")

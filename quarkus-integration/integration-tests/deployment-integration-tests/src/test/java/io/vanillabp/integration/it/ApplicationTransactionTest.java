@@ -14,7 +14,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.QuarkusExtensionTest;
-import io.vanillabp.adapter.dummy.runtime.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;

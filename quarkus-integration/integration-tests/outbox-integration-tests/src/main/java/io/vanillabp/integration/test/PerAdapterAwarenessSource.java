@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import io.vanillabp.adapter.dummy.runtime.DummyTaskAwarenessSource;
+import io.vanillabp.bpmsdouble.DummyTaskAwarenessSource;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import jakarta.enterprise.context.ApplicationScoped;
 

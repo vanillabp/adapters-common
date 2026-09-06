@@ -18,8 +18,8 @@ import org.springframework.core.ResolvableType;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.migration.config.WorkflowAdapterCacheProperties;
 import io.vanillabp.integration.adapter.migration.processservice.InMemoryWorkflowAdapterCache;

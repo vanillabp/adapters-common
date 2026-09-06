@@ -9,9 +9,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyTaskAwarenessSource;
+import io.vanillabp.bpmsdouble.DummyTaskAwarenessSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration;
 import io.vanillabp.integration.test.TestPersistenceConfiguration;

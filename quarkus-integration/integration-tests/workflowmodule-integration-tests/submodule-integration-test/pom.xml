@@ -50,8 +50,8 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>io.vanillabp.quarkus.adapter</groupId>
-      <artifactId>dummy-adapter</artifactId>
+      <groupId>io.vanillabp</groupId>
+      <artifactId>bpms-double-quarkus</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>

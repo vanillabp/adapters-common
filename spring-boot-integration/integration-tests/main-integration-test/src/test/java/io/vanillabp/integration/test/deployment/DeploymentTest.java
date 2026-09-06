@@ -10,8 +10,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.extension.dummy.springboot.wiring.DummyExtensionWiringConfiguration;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.migration.deployment.DeploymentService;
@@ -85,13 +85,13 @@ public class DeploymentTest {
       final var capturedOutput = output.getAll();
 
       final var readBpmn = "Dummy-Adapter[test]: Reading BPMN 'DummyProcess.bpmn' for test-module";
-      final var prepareBpmn = "Dummy-Adapter: Preparing BPMN for test-module";
-      final var adapterWiring = "Dummy-Adapter: Wiring BPMN for test-module";
+      final var prepareBpmn = "Dummy-Adapter[test]: Preparing BPMN 'DummyProcess.bpmn' for test-module";
+      final var adapterWiring = "Dummy-Adapter[test]: Wiring BPMN process 'DummyProcess' for test-module";
       final var extensionWiring = "Dummy-Extension: Wiring BPMN for test-module";
       final var readDmn = "Dummy-Adapter[test]: Reading DMN 'DummyDecision.dmn' for test-module";
       final var deployResources = "Dummy-Adapter[test]: Deploying resources for test-module";
       final var appStarted = "seconds (process running for";
-      final var adapterStartProcessing = "Dummy-Adapter: Starting workflow processing for test-module";
+      final var adapterStartProcessing = "Dummy-Adapter[test]: Starting workflow processing for test-module";
       final var extensionStartProcessing = "Dummy-Extension: Starting workflow processing for test-module";
 
       final var readBpmnPos = capturedOutput.indexOf(readBpmn);
@@ -183,7 +183,7 @@ public class DeploymentTest {
     final var capturedOutput = output.getAll();
 
     final var extensionStopProcessing = "Dummy-Extension: Stopping workflow processing for test-module";
-    final var adapterStopProcessing = "Dummy-Adapter: Stopping workflow processing for test-module";
+    final var adapterStopProcessing = "Dummy-Adapter[test]: Stopping workflow processing for test-module";
 
     final var extensionStopProcessingPos = capturedOutput.indexOf(extensionStopProcessing);
     final var adapterStopProcessingPos = capturedOutput.indexOf(adapterStopProcessing);

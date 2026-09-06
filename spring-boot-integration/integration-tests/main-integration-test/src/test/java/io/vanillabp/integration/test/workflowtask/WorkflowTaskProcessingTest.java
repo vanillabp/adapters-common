@@ -20,11 +20,11 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterOverlayProperties;
-import io.vanillabp.adapter.dummy.springboot.deployment.DeploymentService;
-import io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
+import io.vanillabp.bpmsdouble.DummyDeploymentService;
+import io.vanillabp.bpmsdouble.DummyTaskWiringSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterOverlayProperties;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
@@ -267,7 +267,7 @@ public class WorkflowTaskProcessingTest {
 
       // the adapter-facing trigger: per-adapter-id deployment-service bean, like
       // a real BPMS adapter dispatching a delivered task through the core
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
 
       // (a) normal return: task completed, aggregate changes saved
       storeAggregate("4711");
@@ -414,7 +414,7 @@ public class WorkflowTaskProcessingTest {
 
     try (var testApp = buildTestApp(); var context = runTestApplication(testApp)) {
 
-      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DeploymentService.class);
+      final var dummyAdapter = context.getBean("DummyAdapter_DeploymentService_test", DummyDeploymentService.class);
       final var invoker = context.getBean(
           io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry.class);
 

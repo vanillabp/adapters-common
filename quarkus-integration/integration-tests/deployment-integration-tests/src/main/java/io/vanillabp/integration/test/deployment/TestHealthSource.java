@@ -2,7 +2,7 @@ package io.vanillabp.integration.test.deployment;
 
 import java.util.function.Function;
 
-import io.vanillabp.adapter.dummy.runtime.DummyHealthSource;
+import io.vanillabp.bpmsdouble.DummyHealthSource;
 import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
 import jakarta.enterprise.context.ApplicationScoped;
 

@@ -130,6 +130,29 @@
         <artifactId>test-utils</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <!-- The BPMS double: an adapter which pretends to be a BPMS, so a test boots an
+           application without one. A Spring Boot application adds the one artifact, a
+           Quarkus application the extension pair. -->
+      <dependency>
+        <groupId>io.vanillabp</groupId>
+        <artifactId>bpms-double</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vanillabp</groupId>
+        <artifactId>bpms-double-spring-boot</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vanillabp</groupId>
+        <artifactId>bpms-double-quarkus</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vanillabp</groupId>
+        <artifactId>bpms-double-quarkus-deployment</artifactId>
+        <version>${project.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 </project>

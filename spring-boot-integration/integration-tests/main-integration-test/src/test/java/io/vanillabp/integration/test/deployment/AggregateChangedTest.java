@@ -12,10 +12,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.ResolvableType;
 
-import io.vanillabp.adapter.dummy.springboot.DummyAdapterConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterPhaseTwoListener;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyAdapterProcessServiceConfiguration;
-import io.vanillabp.adapter.dummy.springboot.processservice.DummyTaskAwarenessSource;
+import io.vanillabp.bpmsdouble.DummyPhaseTwoListener;
+import io.vanillabp.bpmsdouble.DummyTaskAwarenessSource;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterConfiguration;
+import io.vanillabp.bpmsdouble.springboot.DummyAdapterProcessServiceConfiguration;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
@@ -42,7 +42,7 @@ public class AggregateChangedTest {
   /**
    * Records what the dummy adapter was told to push.
    */
-  static class RecordingPushes implements DummyAdapterPhaseTwoListener {
+  static class RecordingPushes implements DummyPhaseTwoListener {
 
     final List<String> pushed = new LinkedList<>();
 

@@ -3,7 +3,7 @@ package io.vanillabp.integration.test.deployment;
 import java.util.Collection;
 import java.util.List;
 
-import io.vanillabp.adapter.dummy.runtime.DummyBpmsInitiatedStartSource;
+import io.vanillabp.bpmsdouble.DummyBpmsInitiatedStartSource;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec;
 import io.vanillabp.spi.service.BpmsStartTrigger;
 import jakarta.enterprise.context.ApplicationScoped;

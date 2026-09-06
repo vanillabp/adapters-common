@@ -26,7 +26,7 @@ public class TestApplication {
    * @return The wiring of the BPMN process 'ConflictProcess'
    */
   @Bean
-  public io.vanillabp.adapter.dummy.springboot.deployment.DummyTaskWiringSource conflictTaskWiringSource() {
+  public io.vanillabp.bpmsdouble.DummyTaskWiringSource conflictTaskWiringSource() {
 
     return (
         adapterId,
