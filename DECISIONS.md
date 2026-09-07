@@ -841,3 +841,47 @@ What that costs is a contract. The log lines the double writes, the names of the
 registers and the way it turns a filename into a BPMN process id are things a consumer can rely on,
 so they are written down in `bpms-double/README.md` and changed deliberately. Everything else about
 the double, the class layout included, stays free to move.
+
+### 34. What an extension needs from VanillaBP is a contract it describes, not a base class it inherits
+
+The Business-Cockpit adapters of version 1 were not adapters at all: they were extensions built on
+the platform integration's internals - `AbstractTaskWiring`, `TaskHandlerBase`,
+`AdapterAwareProcessService` and a second `@ConfigurationProperties("vanillabp")` bean of their
+own. Every one of those is a class of the platform which happened to be public, so every change to
+it was a change to the extension, and an extension for Quarkus could not exist at all.
+
+Version 2 gives an extension four things and no base class. It describes its own annotation
+(`HandlerContract`: how a method is matched, what may stand in its parameter list, whether the
+return value is delivered) and VanillaBP runs those methods with the mechanics of `@WorkflowTask`.
+It contributes an `AggregateServiceFactory` and gets one bean of its service per workflow
+aggregate, injectable with the aggregate as its type argument. It asks the election which BPMS
+holds a workflow instead of assuming the first-priority one. And it configures itself below
+`vanillabp.extensions.<extension>`, with a per-workflow-module override.
+
+What ties them together is that each is parameterized BY the extension rather than shaped after
+one: the annotation type, the service interface, the extension id. Nothing in the core knows what
+a user-task detail is, and an application not using an extension sees none of it. The sample
+extension of both platform integrations is the proof: it builds against the two SPI artifacts and
+the platform-neutral core, and would stop proving anything the moment it needed a dependency on a
+platform integration.
+
+Two shapes were deliberately not chosen. A base class per platform is what version 1 had. And a
+cockpit-shaped SPI in the core - `getUserTaskDetails` and friends - would have made the next
+extension a change to VanillaBP.
+
+### 35. An extension's handler contract may arrive after the workflow services were scanned
+
+The workflow services are scanned while the process-service beans are created. Whether an
+extension's own bean exists by then depends on what else the application does - on Spring Boot an
+auto-configuration's position, on Quarkus which bean is resolved first - and an extension cannot
+influence it and should not have to reason about it.
+
+So the registry remembers every workflow service which was registered, and a contract arriving
+later is applied to all of them; a workflow service arriving later is scanned for every contract
+known by then. Both orders produce the same result, which is what lets an extension register its
+contract wherever it is convenient.
+
+The alternative was to demand that contracts be registered before the scan, enforced by a startup
+check. It would have worked, and it would have made the first question of every extension author a
+question about the boot order of two platforms.
+

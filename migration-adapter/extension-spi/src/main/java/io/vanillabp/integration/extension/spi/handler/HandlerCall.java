@@ -42,6 +42,8 @@ public final class HandlerCall {
 
   private final boolean savesWorkflowAggregate;
 
+  private final boolean inTheCurrentTransaction;
+
   private HandlerCall(
       final Builder builder) {
 
@@ -56,6 +58,7 @@ public final class HandlerCall {
     this.multiInstances = Map.copyOf(builder.multiInstances);
     this.payload = builder.payload;
     this.savesWorkflowAggregate = builder.savesWorkflowAggregate;
+    this.inTheCurrentTransaction = builder.inTheCurrentTransaction;
 
   }
 
@@ -178,6 +181,15 @@ public final class HandlerCall {
   }
 
   /**
+   * @return Whether the method runs in the caller's transaction instead of one of its own
+   */
+  public boolean runsInTheCurrentTransaction() {
+
+    return inTheCurrentTransaction;
+
+  }
+
+  /**
    * Builds a {@link HandlerCall}.
    */
   public static final class Builder {
@@ -203,6 +215,8 @@ public final class HandlerCall {
     private Object payload;
 
     private boolean savesWorkflowAggregate = true;
+
+    private boolean inTheCurrentTransaction = false;
 
     private Builder(
         final Class<? extends Annotation> annotationType,
@@ -335,6 +349,21 @@ public final class HandlerCall {
     public Builder withoutSavingTheWorkflowAggregate() {
 
       this.savesWorkflowAggregate = false;
+      return this;
+
+    }
+
+    /**
+     * Runs the method in the transaction the caller is already in, instead of one of its
+     * own. An embedded BPMS notifies inside its own transaction - Camunda 7 delivers its
+     * task events that way - and a handler suspending it there would save the aggregate
+     * separately from what the engine is doing.
+     *
+     * @return This builder
+     */
+    public Builder inTheCurrentTransaction() {
+
+      this.inTheCurrentTransaction = true;
       return this;
 
     }

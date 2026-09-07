@@ -69,6 +69,9 @@ public class ExtensionEnablementTest {
   @Inject
   MigrationAdapterProperties properties;
 
+  @Inject
+  jakarta.transaction.UserTransaction userTransaction;
+
   private NoteAggregate aggregate(
       final String id,
       final String content) {
@@ -150,6 +153,39 @@ public class ExtensionEnablementTest {
         .orElseThrow();
 
     assertEquals(null, persistence.stored("5").getTouched());
+
+  }
+
+  @Test
+  @DisplayName("A call which says so runs in the transaction of its caller")
+  public void aCallMayRunInTheCallersTransaction() throws Exception {
+
+    final var aggregate = aggregate("7", "in-the-callers-transaction");
+
+    userTransaction.begin();
+    try {
+      noteService
+          .recordNoteInTheCallersTransaction(aggregate, "TheServiceTask", SampleNoteDetails.Kind.CREATED)
+          .orElseThrow();
+    } finally {
+      userTransaction.commit();
+    }
+
+    assertEquals("noteOfTheServiceTask", persistence.stored("7").getTouched());
+
+  }
+
+  @Test
+  @DisplayName("Without a transaction of the caller, joining one is refused naming the reason")
+  public void joiningANonExistingTransactionIsRefusedGuiding() {
+
+    final var aggregate = aggregate("8", "no-transaction-here");
+
+    final var failure = assertThrows(
+        IllegalStateException.class,
+        () -> noteService
+            .recordNoteInTheCallersTransaction(aggregate, "TheServiceTask", SampleNoteDetails.Kind.CREATED));
+    assertTrue(failure.getMessage().contains("no transaction is active"));
 
   }
 

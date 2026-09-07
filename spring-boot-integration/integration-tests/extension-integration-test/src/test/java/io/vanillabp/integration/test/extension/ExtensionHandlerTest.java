@@ -2,6 +2,7 @@ package io.vanillabp.integration.test.extension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.DisplayName;
@@ -125,6 +126,32 @@ public class ExtensionHandlerTest {
 
     assertEquals(
         "noteOfTheServiceTask",
+        aggregates
+            .findById(aggregate.getId())
+            .orElseThrow()
+            .getTouched());
+
+  }
+
+  @Test
+  @DisplayName("A call which says so runs in the transaction of its caller")
+  public void aCallMayRunInTheCallersTransaction() {
+
+    final var aggregate = startWorkflow("in-the-callers-transaction");
+
+    // rolled back by the caller: an invocation which opened a transaction of its own
+    // would have saved what the method changed either way
+    transactionTemplate
+        .execute(status -> {
+          workflowService
+              .getNoteService()
+              .recordNoteInTheCallersTransaction(aggregate, "Activity_1c9pa8d", SampleNoteDetails.Kind.CREATED)
+              .orElseThrow();
+          status.setRollbackOnly();
+          return null;
+        });
+
+    assertNull(
         aggregates
             .findById(aggregate.getId())
             .orElseThrow()

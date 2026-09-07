@@ -23,16 +23,19 @@ import java.util.function.Function;
  * {@link Builder#lookupKeys(Function)} reads from it. A method whose annotation names
  * none serves its own METHOD NAME, which is the convention
  * <code>&#64;WorkflowTask</code> follows too; {@link #EVERY_KEY} makes it serve every
- * key of its BPMN process. An invocation hands in the keys it accepts (a task
- * definition and an element id, say) and the method serving any of them runs.
+ * key of its BPMN process. An invocation hands in the keys it accepts (a task definition
+ * and an element id, say), and the method NAMING one of them runs; where none does, the
+ * method serving every key runs. So a catch-all may stand next to methods for single
+ * elements, and the specific one wins - the rule
+ * <code>&#64;WorkflowStartedByBpms</code> follows for its start events too.
  * <p>
  * <b>Zero matches are legal.</b> Nothing is registered for a BPMN process whose
  * workflow service carries no such method, and an invocation for it answers
  * {@link ExtensionHandlers#hasHandler} with <code>false</code> respectively returns an
  * empty result - what an extension does instead is its own business (the Business
- * Cockpit passes its prefilled details through unchanged). Two methods serving the same
- * key of one BPMN process, on the other hand, end the boot: which of them was meant
- * cannot be guessed.
+ * Cockpit passes its prefilled details through unchanged). Two methods naming the same
+ * key of one BPMN process, on the other hand, end the boot, and so do two catch-alls:
+ * which of them was meant cannot be guessed.
  */
 public final class HandlerContract {
 

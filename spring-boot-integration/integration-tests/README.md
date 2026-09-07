@@ -10,11 +10,18 @@ A collection of integration tests to guarantee desired functionality.
    This adapter is a template for new extensions and is used as an extension
    by the integration tests. For ready-to-use adapter extensions checkout
    [https://www.vanillabp.io](https://www.vanillabp.io).
-2. **[main-integration-test](./main-integration-test):**<br>
+2. **[sample-extension](./sample-extension):**<br>
+   An extension built like the VanillaBP Business Cockpit, in miniature: its own
+   annotation, its own per-aggregate service, the election and its own section of the
+   configuration. It depends on the two SPI artifacts and the platform-neutral core and
+   on no platform integration - which is what it exists to prove.
+3. **[extension-integration-test](./extension-integration-test):**<br>
+   What an extension gets from VanillaBP, exercised against the sample extension.
+4. **[main-integration-test](./main-integration-test):**<br>
    This module contains the main integration test.
-3. **[test-applications](./test-applications):**<br>
+5. **[test-applications](./test-applications):**<br>
    This module contains the test applications used by integration tests.
-4. **[workflowmodule-integration-tests](./workflowmodule-integration-tests):**<br>
+6. **[workflowmodule-integration-tests](./workflowmodule-integration-tests):**<br>
    This module contains integration tests, testing workflow module functionality.
 
 The BPMS these tests run against is the published [BPMS double](../../bpms-double), which used to

@@ -1973,9 +1973,12 @@ nothing is assigned and the persistence layer generates one while saving.
 
 The `@WorkflowStartedByBpms` methods are scanned by `BpmsInitiatedStartScanner` and
 held by `BpmsInitiatedStarts`, to which `WorkflowTaskRegistry` delegates the second
-adapter-facing interface. Both scanners walk the same classes and share the value
-conversion; folding them into ONE pluggable handler contract is the subject of the
-extension-enablement story.
+adapter-facing interface. The scanner builds its parameters from `CoreParameterBinders`,
+the one place the workflow aggregate and `@TaskParam` are bound - shared with the scanners
+of `@WorkflowTask` and `@WorkflowEnded` and with the [handler contracts of an
+extension](#the-extensions-own-annotation-handler-contracts). What stays its own is
+everything a start has and a task does not: which start event a method serves, the ID
+rules, and the aggregate which does not exist yet.
 
 An adapter whose BPMS cannot report such a start implements none of this and fails the
 deployment of such a process with a guiding message instead - a workflow which could
@@ -2308,6 +2311,109 @@ needs to know about the setup.
 core, `DeploymentPipelineTest#extensionsWiredInOrder` and `#nonMatchingExtensionUntouched`
 against a booted application.
 
+#### The extension's own annotation: handler contracts
+
+An extension brings annotations of its own — the Business Cockpit's details providers are
+the case this was written for — and the mechanics behind `@WorkflowTask` serve them too.
+The extension describes what its annotation means and registers that description
+(`ExtensionHandlers#register`, a bean of both platforms); VanillaBP finds the methods on
+the `@WorkflowService` classes, binds their parameters, loads the workflow aggregate,
+invokes and saves, in one transaction.
+
+```java
+HandlerContract
+    .of("business-cockpit", UserTaskDetailsProvider.class)
+    .lookupKeys(annotation -> keysOf((UserTaskDetailsProvider) annotation))
+    .coreParameters(WORKFLOW_AGGREGATE, TASK_PARAM, MULTI_INSTANCE)
+    .parameterBinder(parameter -> parameter.getType().equals(PrefilledUserTaskDetails.class)
+        ? Optional.of(HandlerContext::getPayload)
+        : Optional.empty())
+    .deliversReturnValue()
+    .build();
+```
+
+|  Part of the contract   |                                                      What it decides                                                      |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| annotation type         | which methods belong to the extension; repeatable annotations are supported                                               |
+| `lookupKeys(…)`         | the keys one occurrence names — an EMPTY list means the method's own name, `EVERY_KEY` means every element of the process |
+| `coreParameters(…)`     | which of the parameters VanillaBP binds itself may stand there (`@TaskId`/`@TaskEvent` are deliberately not among them)   |
+| `parameterBinder(…)`    | the parameters of the extension's own SPI, recognized by type or by annotation                                            |
+| `deliversReturnValue()` | whether what a method returns reaches the caller; without it a method has to be `void`                                    |
+
+An invocation (`ExtensionHandlers#invoke`) names the keys it accepts — a task definition
+and an element id, say — and the method NAMING any of them runs; where none does, the
+method serving `EVERY_KEY` does, so a catch-all may stand next to methods for single
+elements (the rule `@WorkflowStartedByBpms` follows for its start events too). **Zero matches are
+legal** and answered with an empty result: what to do instead is the extension's business
+(the Business Cockpit passes its prefilled details through unchanged). Two methods serving
+one key of one BPMN process end the boot naming both. A call may hand IN an aggregate
+instead of naming its ID, may say that the aggregate is not to be saved, and may say that
+it runs in the transaction the caller is already in — which is what an embedded BPMS needs,
+since Camunda 7 delivers its task events inside the engine's own transaction.
+
+**Registration order does not matter.** Whether the extension's bean or the scan of the
+workflow services comes first depends on what else the application does, so a contract
+registered later is applied to the classes registered so far (decision 35 in the
+repository's `DECISIONS.md`).
+
+Behind it, `CoreParameterBinders` is the one place the workflow aggregate, `@TaskParam` and
+the multi-instance context are bound — shared with the scanners of `@WorkflowTask`,
+`@WorkflowStartedByBpms` and `@WorkflowEnded`, which is why a parameter behaves the same
+wherever it stands.
+
+#### A service of the extension per workflow aggregate
+
+`ProcessService<A>` is injected with the aggregate as its type argument, and the Business
+Cockpit's `BusinessCockpitService<A>` wants to be injected the same way. An extension
+contributes an `AggregateServiceFactory` — the interface it offers plus how to build one
+for an aggregate — and gets one bean per workflow aggregate of the application, from the
+same universe the process services are built for.
+
+Injecting it is **optional**, unlike `ProcessService`: the bean is built on first use, so
+an application never asking for the service never runs the factory. What the factory is
+handed (`AggregateServiceContext`) is the aggregate and its persistence, the workflow it
+belongs to, the handler methods of the application and the election.
+
+The service interface has to take exactly one type parameter, the workflow aggregate. On
+Spring Boot the interface is read off the factory's bean definition; on Quarkus off the
+Jandex index, which means a factory has to be indexed (a runtime module with a Jandex index
+brings it along, one without says so with an `AdditionalIndexedClassesBuildItem`).
+
+#### Which BPMS holds this workflow
+
+`WorkflowElection#adapterIdOfWorkflow` answers what an extension has to ask before it talks
+to a BPMS about a running workflow: during a migration the answer changes per workflow, and
+addressing the first-priority adapter would be wrong for every workflow already moved.
+
+It is the election every operation uses, in its READING shape: a workflow which ended is a
+regular answer, the way the viewer API reads its history, and a hint pointing at an adapter
+whose read model has not caught up is waited out — nobody repeats the question for an
+extension either. A workflow no BPMS knows, and a BPMN process this application does not
+serve, are guiding errors naming what was asked.
+
+#### The extension's own configuration
+
+`vanillabp.extensions.<extension>.*` for the application, and
+`vanillabp.workflow-modules.<id>.extensions.<extension>.*` where one workflow module needs
+something else; the module's value wins per key.
+`MigrationAdapterProperties#extensionProperties` resolves the two levels,
+`#extensionProperty` reads one value. What the keys MEAN stays the extension's business —
+the core keeps them as they were written, the extension binds and validates its own, typed,
+the way an adapter binds the keys below its adapter id.
+
+#### Operations of its own in the outbox
+
+An extension registers namespaced phase-two operations with its own dispatch — see
+[Operations of extensions](#operations-of-extensions).
+
+**What holds all of this.** `ExtensionHandlerTest` and
+`ExtensionElectionAndConfigurationTest` (Spring Boot, module
+`extension-integration-test`) and `ExtensionEnablementTest` (Quarkus, module
+`deployment-integration-tests`), all against the sample extension of the respective
+platform — an extension built like the Business Cockpit, in miniature, whose dependencies
+are half the point: the two SPI artifacts and the platform-neutral core, and no platform
+integration.
+
 ### Adapter/platform version guard (`AdapterPlatformVersion`)
 
 Applications pin the VanillaBP versions themselves, usually by importing
@@ -2603,8 +2709,10 @@ The window, the serialized collectors and the failure which does not stay are
    transitively through the platform support modules (`vanillabp-spring-boot-support`
    / `vanillabp-quarkus-support`).
 2. **extension-spi:** (artifact `io.vanillabp:vanillabp-extension-spi`)<br>
-   `ExtensionWiringService`, and nothing else: preparing a BPMN model and wiring it with
-   business code, which is all an extension of the deployment pipeline has to bring. The
+   `ExtensionWiringService` - preparing a BPMN model and wiring it with business code -
+   plus what an extension needs beyond the pipeline: the handler contracts for annotations
+   of its own (`handler`), the per-aggregate service it offers (`service`) and the election
+   (`election`). The
    module has no dependency at all, so an extension can be built against it without pulling
    the adapter SPI it does not implement.
 3. **adapter-spi:** (artifact `io.vanillabp:vanillabp-adapter-spi`)<br>

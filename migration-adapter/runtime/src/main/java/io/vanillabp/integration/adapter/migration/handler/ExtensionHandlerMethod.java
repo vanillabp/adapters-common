@@ -51,15 +51,22 @@ final class ExtensionHandlerMethod {
   }
 
   /**
+   * @return Whether this method serves every key of its BPMN process
+   */
+  boolean servesEveryKey() {
+
+    return lookupKeys.contains(HandlerContract.EVERY_KEY);
+
+  }
+
+  /**
    * @param candidates The keys the caller accepts
-   * @return Whether this method serves any of them
+   * @return Whether this method NAMES any of them - the catch-all does not count here,
+   *         which is what lets a method for one element stand next to it
    */
   boolean matches(
       final Collection<String> candidates) {
 
-    if (lookupKeys.contains(HandlerContract.EVERY_KEY)) {
-      return true;
-    }
     return candidates
         .stream()
         .anyMatch(lookupKeys::contains);
@@ -67,14 +74,20 @@ final class ExtensionHandlerMethod {
   }
 
   /**
+   * Whether two methods are ambiguous. A method serving one element and a catch-all next
+   * to it are not: the specific one wins, which is the rule
+   * <code>&#64;WorkflowStartedByBpms</code> follows for its start events too. Two
+   * catch-alls, on the other hand, are exactly as ambiguous as two methods naming the
+   * same element.
+   *
    * @param other Another method of the same contract and BPMN process
-   * @return Whether both serve a common key - which makes them ambiguous
+   * @return Whether both serve a common key
    */
   boolean overlaps(
       final ExtensionHandlerMethod other) {
 
-    if (lookupKeys.contains(HandlerContract.EVERY_KEY) || other.lookupKeys.contains(HandlerContract.EVERY_KEY)) {
-      return true;
+    if (servesEveryKey() || other.servesEveryKey()) {
+      return servesEveryKey() && other.servesEveryKey();
     }
     return lookupKeys
         .stream()

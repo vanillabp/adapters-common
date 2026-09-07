@@ -214,7 +214,7 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
     final var returned = AggregateWrite
         .inTransaction(
             transactionRunner,
-            false,
+            call.runsInTheCurrentTransaction(),
             call.getWorkflowModuleId(),
             call.getBpmnProcessId(),
             call.getWorkflowAggregateId(),
@@ -333,10 +333,16 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
       return null;
     }
     synchronized (registered) {
+      // the method NAMING one of the keys wins over the one serving every element of
+      // the process - a catch-all is what runs where nothing more specific exists
       return registered
           .stream()
           .filter(method -> method.matches(lookupKeys))
           .findFirst()
+          .or(() -> registered
+              .stream()
+              .filter(ExtensionHandlerMethod::servesEveryKey)
+              .findFirst())
           .orElse(null);
     }
 
