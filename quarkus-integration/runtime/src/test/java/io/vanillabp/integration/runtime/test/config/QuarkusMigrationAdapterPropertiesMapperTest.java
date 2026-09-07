@@ -108,6 +108,16 @@ public class QuarkusMigrationAdapterPropertiesMapperTest {
     }
 
     /**
+     * None of these fixtures overrides an extension's settings for one module.
+     */
+    @Override
+    public Map<String, Map<String, String>> extensions() {
+
+      return Map.of();
+
+    }
+
+    /**
      * Without a transaction and without a delivery section, which is what most of these
      * fixtures need.
      */
@@ -231,6 +241,16 @@ public class QuarkusMigrationAdapterPropertiesMapperTest {
     public Optional<List<String>> retiredAdapters() {
 
       return Optional.empty();
+
+    }
+
+    /**
+     * None of these fixtures configures an extension.
+     */
+    @Override
+    public Map<String, Map<String, String>> extensions() {
+
+      return Map.of();
 
     }
 

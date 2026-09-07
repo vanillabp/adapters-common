@@ -48,4 +48,13 @@ public class WorkflowModuleAdapterProperties extends AdaptersConfigurationProper
    */
   private DeliveryProperties delivery;
 
+  /**
+   * Overrides <code>vanillabp.extensions.&lt;extension&gt;.*</code> for this workflow
+   * module - the place an extension configured once for the whole application says
+   * something different about one of its modules (the Business Cockpit's URI of a module,
+   * say). Keys are the extension ids.
+   */
+  @Builder.Default
+  private Map<String, Map<String, String>> extensions = Map.of();
+
 }

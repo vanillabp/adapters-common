@@ -77,6 +77,16 @@ public class MigrationAdapterProperties extends AdaptersConfigurationProperties 
   private Map<String, WorkflowModuleAdapterProperties> workflowModules = Map.of();
 
   /**
+   * The settings of the extensions (properties section
+   * <code>vanillabp.extensions.&lt;extension&gt;.*</code>), overridable per workflow
+   * module. Keys are the extension ids, values what the application wrote below them,
+   * keyed by the rest of the path - what the keys MEAN is the extension's own business
+   * (see {@link ExtensionProperties}).
+   */
+  @Builder.Default
+  private Map<String, Map<String, String>> extensions = Map.of();
+
+  /**
    * Configuration of the default
    * {@link io.vanillabp.integration.spi.PhaseTwoOutbox} implementations
    * (properties section <code>vanillabp.outbox</code>).
@@ -586,6 +596,55 @@ public class MigrationAdapterProperties extends AdaptersConfigurationProperties 
       }
     }
     return extractForAdapter(adapters, adapterId, valueExtractor);
+
+  }
+
+  /**
+   * The settings of an extension as they apply to a workflow module: what
+   * <code>vanillabp.extensions.&lt;extension&gt;.*</code> configures, with whatever
+   * <code>vanillabp.workflow-modules.&lt;module&gt;.extensions.&lt;extension&gt;.*</code>
+   * says on top of it - the same most-specific-wins rule an adapter setting follows,
+   * with two levels instead of four. Deeper levels are the extension's own business; the
+   * core owns the location and this resolution.
+   *
+   * @param workflowModuleId The workflow module, or <code>null</code> for the global
+   *          settings alone
+   * @param extension The extension's id
+   * @return The settings, never <code>null</code>
+   */
+  public Map<String, String> extensionProperties(
+      final String workflowModuleId,
+      final String extension) {
+
+    final var workflowModule = workflowModuleId != null
+        ? workflowModules.get(workflowModuleId)
+        : null;
+    return ExtensionProperties
+        .merge(
+            extensions.get(extension),
+            workflowModule == null
+                ? null
+                : workflowModule
+                    .getExtensions()
+                    .get(extension));
+
+  }
+
+  /**
+   * One value of an extension's settings, resolved the way
+   * {@link #extensionProperties(String, String)} resolves all of them.
+   *
+   * @param workflowModuleId The workflow module, or <code>null</code>
+   * @param extension The extension's id
+   * @param key The key below the extension's section, e.g. <code>rest.base-url</code>
+   * @return The value, or <code>null</code> where nothing is configured there
+   */
+  public String extensionProperty(
+      final String workflowModuleId,
+      final String extension,
+      final String key) {
+
+    return extensionProperties(workflowModuleId, extension).get(key);
 
   }
 
