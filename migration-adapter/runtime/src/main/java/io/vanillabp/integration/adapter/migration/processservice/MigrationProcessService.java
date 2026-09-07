@@ -1905,6 +1905,56 @@ public class MigrationProcessService<A> {
   }
 
   /**
+   * The adapter holding the workflow of the given aggregate - the election an EXTENSION
+   * needs before it talks to a BPMS about a running workflow.
+   * <p>
+   * It is the read shape of the election, not the operation shape: a COMPLETED workflow
+   * is a regular answer, because an extension may well have something to say about a
+   * workflow which ended, the way the viewer API reads its history. And like a read it
+   * waits out the visibility window of an adapter a hint points at - nobody repeats the
+   * question for an extension either.
+   *
+   * @param workflowAggregateId The ID of the workflow aggregate
+   * @return The id of the adapter holding the workflow
+   * @throws IllegalStateException If no configured BPMS knows the workflow, or if the
+   *           BPMS which should hold it is unreachable
+   */
+  public String adapterIdOfWorkflow(
+      final Object workflowAggregateId) {
+
+    final var subject = subjectOf(workflowAggregateId);
+    final var location = workflowLocator
+        .locate(
+            adapterProcessServices,
+            adapter -> adapter
+                .awarenessOfWorkflow(workflowScope(), aggregatePersistenceSupport, workflowAggregateId),
+            workflowAggregateId,
+            subject,
+            WorkflowLocator.Patience.WAIT_FOR_VISIBILITY);
+
+    if (location.awareness() == WorkflowAwareness.UNKNOWN_TO_BPMS) {
+      throw new IllegalStateException(
+          """
+              No configured BPMS knows the workflow of %s, so no extension can be told which BPMS \
+              holds it (probed adapters, in prioritized order: %s)! Either the workflow was never \
+              started, or its BPMS has forgotten it already.%s"""
+              .formatted(
+                  subject,
+                  prioritizedAdapters,
+                  location.isUnknownButExpected()
+                      ? (" The adapter '%s' was expected to hold it and still did not report it "
+                          + "after its workflowVisibilityDelay had passed - if that BPMS answers "
+                          + "from a read model, its exporter is behind or has stopped.")
+                          .formatted(location.hintedAdapterId())
+                      : ""));
+    }
+    return location
+        .adapter()
+        .getAdapterId();
+
+  }
+
+  /**
    * What every message about an operation names: the workflow it happened to. What
    * happened is the operation's own words ({@link PhaseOperation#describe(Map)}).
    */

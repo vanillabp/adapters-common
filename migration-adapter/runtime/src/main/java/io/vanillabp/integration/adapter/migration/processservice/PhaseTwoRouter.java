@@ -153,6 +153,41 @@ public final class PhaseTwoRouter {
   }
 
   /**
+   * The process service of a workflow module's BPMN process - what a caller outside the
+   * dispatch needs when it has a workflow module and a BPMN process and nothing else.
+   * The router is the one place where all of them are collected.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @return The process service, or <code>null</code> if this application serves no such
+   *         BPMN process
+   */
+  public MigrationProcessService<?> processServiceOf(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return registrations.get(new RegistrationKey(workflowModuleId, bpmnProcessId));
+
+  }
+
+  /**
+   * The workflow modules and BPMN processes this application serves, for guiding
+   * messages naming what a caller could have meant.
+   *
+   * @return One <code>&lt;module&gt;/&lt;process&gt;</code> per registration, sorted
+   */
+  public java.util.List<String> registeredWorkflows() {
+
+    return registrations
+        .keySet()
+        .stream()
+        .map(key -> "%s/%s".formatted(key.workflowModuleId(), key.bpmnProcessId()))
+        .sorted()
+        .toList();
+
+  }
+
+  /**
    * Dispatch the given phase-two call to the process service registered for its
    * workflow module/BPMN process.
    *

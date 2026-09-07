@@ -76,4 +76,22 @@ public class PhaseTwoRouterProducer {
 
   }
 
+  /**
+   * The election, offered to extensions: which BPMS holds a given workflow right now.
+   * An extension addressing the first-priority adapter instead would talk to the wrong
+   * BPMS for every workflow a migration has already moved.
+   *
+   * @param phaseTwoRouter The router holding the process services of this application
+   * @return The extension-facing election
+   */
+  @Produces
+  @Singleton
+  @io.quarkus.arc.Unremovable
+  public io.vanillabp.integration.extension.spi.election.WorkflowElection workflowElection(
+      final PhaseTwoRouter phaseTwoRouter) {
+
+    return new io.vanillabp.integration.adapter.migration.processservice.ExtensionWorkflowElection(phaseTwoRouter);
+
+  }
+
 }

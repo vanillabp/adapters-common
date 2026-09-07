@@ -111,6 +111,13 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
   private final WorkflowEndedHandlers workflowEndedHandlers = new WorkflowEndedHandlers(processVersions);
 
   /**
+   * The methods of the same workflow service classes which belong to an extension's own
+   * annotation. Empty in an application without extensions - the scan only happens for
+   * contracts somebody registered.
+   */
+  private final io.vanillabp.integration.adapter.migration.handler.ExtensionHandlerRegistry extensionHandlers;
+
+  /**
    * The transaction annotations of the running platform, supplied by the
    * platform integration: which annotations create a transaction boundary here, and
    * which of them this platform does not honor at all. An EMPTY list switches the
@@ -190,6 +197,8 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
       final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties) {
 
     this.transactionRunner = transactionRunner;
+    this.extensionHandlers = new io.vanillabp.integration.adapter.migration.handler.ExtensionHandlerRegistry(
+        transactionRunner);
     this.aggregateSync = aggregateSync;
     this.transactionAnnotations = transactionAnnotations;
     this.properties = properties;
@@ -306,6 +315,28 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
             processService.getWorkflowAggregateClass(),
             workflowServiceBean,
             inherited);
+
+    extensionHandlers
+        .registerWorkflowService(
+            workflowModuleId,
+            bpmnProcessId,
+            workflowServiceClass,
+            workflowServiceBean,
+            beanResolver,
+            processService);
+
+  }
+
+  /**
+   * The handler methods of the extensions - offered as a bean by both platform
+   * integrations, so an extension registers its contracts and invokes its methods
+   * through it.
+   *
+   * @return The registry, never <code>null</code>
+   */
+  public io.vanillabp.integration.adapter.migration.handler.ExtensionHandlerRegistry getExtensionHandlers() {
+
+    return extensionHandlers;
 
   }
 

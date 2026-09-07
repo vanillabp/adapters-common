@@ -553,6 +553,39 @@ public class SpringBootMigrationAdapterAutoConfiguration {
   }
 
   /**
+   * The handler methods of the extensions - an extension registers its own annotation
+   * here and invokes the methods carrying it. It is the registry's own object rather
+   * than a second one, because the methods are scanned from the same registration call
+   * the <code>&#64;WorkflowTask</code> methods are.
+   *
+   * @param workflowTaskRegistry The registry owning it
+   * @return The extension-facing handler service
+   */
+  @Bean
+  public io.vanillabp.integration.extension.spi.handler.ExtensionHandlers vanillaBpExtensionHandlers(
+      final WorkflowTaskRegistry workflowTaskRegistry) {
+
+    return workflowTaskRegistry.getExtensionHandlers();
+
+  }
+
+  /**
+   * The election, offered to extensions: which BPMS holds a given workflow right now.
+   * An extension addressing the first-priority adapter instead would talk to the wrong
+   * BPMS for every workflow a migration has already moved.
+   *
+   * @param phaseTwoRouter The router holding the process services of this application
+   * @return The extension-facing election
+   */
+  @Bean
+  public io.vanillabp.integration.extension.spi.election.WorkflowElection vanillaBpWorkflowElection(
+      final PhaseTwoRouter phaseTwoRouter) {
+
+    return new io.vanillabp.integration.adapter.migration.processservice.ExtensionWorkflowElection(phaseTwoRouter);
+
+  }
+
+  /**
    * The platform's transaction runner, used for every workflow aggregate the application
    * did not contribute a runner for. One instance for the whole application,
    * because it also answers whether the transaction it is running was marked

@@ -50,6 +50,25 @@ public class WorkflowTaskRegistryProducer {
 
 
   /**
+   * The handler methods of the extensions - an extension registers its own annotation
+   * here and invokes the methods carrying it. It is the registry's own object rather
+   * than a second one, because the methods are scanned from the same registration call
+   * the <code>&#64;WorkflowTask</code> methods are.
+   *
+   * @param workflowTaskRegistry The registry owning it
+   * @return The extension-facing handler service
+   */
+  @Produces
+  @Singleton
+  @Unremovable
+  public io.vanillabp.integration.extension.spi.handler.ExtensionHandlers extensionHandlers(
+      final WorkflowTaskRegistry workflowTaskRegistry) {
+
+    return workflowTaskRegistry.getExtensionHandlers();
+
+  }
+
+  /**
    * The core-owned name-clash-avoidance model: resolves the mode per
    * workflow module/workflow and adapter and composes the identifiers a BPMS sees.
    * <p>
