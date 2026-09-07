@@ -219,10 +219,12 @@ gaps.
 
 Which process ids are asked about is the core's question as well. A workflow module may declare a
 process id no BPMN file of this boot carries any more, which is how a renamed process keeps being
-served, and an adapter cannot arrive at that id on its own, because it sees the model it just
-deployed and nothing else. So the core asks every adapter of the module for the catalog of such a
-declared-only id through `processVersionCatalogOf`, whose default answer is nothing, and an adapter
-whose BPMS cannot be searched by process id stays as it is.
+served, and an adapter cannot arrive at that id on its own: it comes from the annotations of the
+application, which only the core reads, and the models of this deployment name themselves and not
+the id somebody renamed away from. What the BPMS still holds under such an id an adapter can read
+perfectly well once it has been told the id. So the core asks every adapter of the module for the
+catalog of such a declared-only id through `processVersionCatalogOf`, whose default answer is
+nothing, and an adapter whose BPMS cannot be searched by process id stays as it is.
 
 That is also why a `deployedVersion` of null carries two meanings now. Where the module deployed
 the process, no version reported by the BPMS means there is no older one to speak of; where the id
@@ -845,9 +847,12 @@ the double, the class layout included, stays free to move.
 ### 34. The core names the ids nobody deployed, the adapter decides what to do with them
 
 A workflow module may declare a BPMN process id it deploys nothing under, which is how a renamed
-process keeps being served. Only the core knows those ids, because an adapter sees the model it
-just deployed and nothing else, and it already hands them over once per boot to ask what the BPMS
-holds for them (decision 15).
+process keeps being served. Only the core knows those ids, because they come from the annotations
+of the application and the models of this deployment name themselves rather than the id somebody
+renamed away from, and it already hands them over once per boot to ask what the BPMS holds for
+them (decision 15). What the BPMS holds under such an id is then readable by an adapter whose BPMS
+answers for a process id, which is what the Camunda 7 adapter does with the models its engine
+kept.
 
 Serving the workflows running under them is a second duty, and the core does not decide it. What
 it takes to reach such a workflow is BPMS knowledge: an identifier which carries no process id
