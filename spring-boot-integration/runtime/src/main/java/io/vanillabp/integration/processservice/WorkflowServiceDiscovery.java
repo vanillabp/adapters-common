@@ -23,6 +23,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.util.ClassUtils;
 
 import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowServiceBelongsOnAClass;
+import io.vanillabp.integration.extension.spi.service.AggregateServiceFactory;
 import io.vanillabp.spi.service.WorkflowService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -89,12 +90,68 @@ public class WorkflowServiceDiscovery implements BeanDefinitionRegistryPostProce
         workflowServiceClasses.size(),
         workflowServiceClasses.stream().map(Class::getName).toList());
 
+    final var aggregateServiceInterfaces = aggregateServiceInterfacesOf(registry);
+
     // the adapter turns the BeanRegistry API - the generics-aware bean type and the
     // lazy supplier the registrar builds its definitions with - into definitions of
     // this registry
     new BeanRegistryAdapter(
         registry, beanFactory, environment, ProcessServiceBeanRegistrar.class)
-        .register(new ProcessServiceBeanRegistrar(workflowServiceClasses));
+        .register(new ProcessServiceBeanRegistrar(workflowServiceClasses, aggregateServiceInterfaces));
+
+  }
+
+  /**
+   * The service interfaces the extensions of this application offer per workflow
+   * aggregate, read off their {@code AggregateServiceFactory} beans. Like the workflow
+   * services they are found because they are beans, and their classes are read without
+   * creating anything.
+   *
+   * @param registry The bean definitions of the application
+   * @return The service interfaces, each of them once
+   * @throws IllegalStateException If a factory names a service interface which cannot
+   *     carry the aggregate as its type argument
+   */
+  private List<Class<?>> aggregateServiceInterfacesOf(
+      final BeanDefinitionRegistry registry) {
+
+    final var interfaces = new LinkedHashSet<Class<?>>();
+    for (final var beanName : registry.getBeanDefinitionNames()) {
+      final var beanClass = beanClassOf(beanName);
+      if ((beanClass == null) || !AggregateServiceFactory.class.isAssignableFrom(beanClass)) {
+        continue;
+      }
+      final var serviceInterface = serviceInterfaceOf(beanName, beanClass);
+      if (serviceInterface == null) {
+        throw new IllegalStateException(
+            """
+                The AggregateServiceFactory '%s' does not name the service interface it builds! \
+                Implement AggregateServiceFactory<YourService> rather than the raw interface - \
+                VanillaBP registers one bean of that interface per workflow aggregate and needs to \
+                know its type."""
+                .formatted(beanClass.getName()));
+      }
+      if (serviceInterface.getTypeParameters().length != 1) {
+        throw new IllegalStateException(
+            """
+                The service interface '%s' offered by the AggregateServiceFactory '%s' has %d type \
+                parameters! It is injected as '%s<YourWorkflowAggregate>', so it has to take exactly \
+                one - the workflow aggregate."""
+                .formatted(
+                    serviceInterface.getName(),
+                    beanClass.getName(),
+                    serviceInterface.getTypeParameters().length,
+                    serviceInterface.getSimpleName()));
+      }
+      interfaces.add(serviceInterface);
+    }
+    if (!interfaces.isEmpty()) {
+      log.debug(
+          "Found {} per-aggregate extension service(s) among the bean definitions: {}",
+          interfaces.size(),
+          interfaces.stream().map(Class::getName).toList());
+    }
+    return List.copyOf(interfaces);
 
   }
 
@@ -152,6 +209,37 @@ public class WorkflowServiceDiscovery implements BeanDefinitionRegistryPostProce
       throw new IllegalStateException(refusalOf(declaredElsewhere));
     }
     return List.copyOf(workflowServiceClasses);
+
+  }
+
+  /**
+   * The service interface one factory offers, read where the generic type actually is: a
+   * factory class implementing {@code AggregateServiceFactory<TheService>} carries it,
+   * while a {@code @Bean} method declaring the raw interface as its return type carries
+   * it only in the method's signature - which the bean DEFINITION knows and the bean's
+   * class does not.
+   *
+   * @param beanName The name of the factory's bean definition
+   * @param beanClass The class of that bean
+   * @return The service interface, or <code>null</code> where the factory names none
+   */
+  private Class<?> serviceInterfaceOf(
+      final String beanName,
+      final Class<?> beanClass) {
+
+    final var fromDefinition = beanFactory
+        .getMergedBeanDefinition(beanName)
+        .getResolvableType()
+        .as(AggregateServiceFactory.class)
+        .getGeneric(0)
+        .resolve();
+    return fromDefinition != null
+        ? fromDefinition
+        : org.springframework.core.ResolvableType
+            .forClass(beanClass)
+            .as(AggregateServiceFactory.class)
+            .getGeneric(0)
+            .resolve();
 
   }
 
