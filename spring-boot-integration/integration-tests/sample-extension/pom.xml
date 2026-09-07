@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.vanillabp.springboot</groupId>
+    <artifactId>integration-tests-parent</artifactId>
+    <version>2.0.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>sample-extension</artifactId>
+  <name>Spring Boot integration - Sample extension</name>
+
+  <!-- The extension a Business-Cockpit-shaped extension is built like, in miniature: its
+    own annotation invoked through the handler contracts, its own per-aggregate service,
+    the election, an outbox operation and its own configuration below
+    'vanillabp.extensions.sample'.
+
+    Its dependencies are the point of it. It sees the two SPI artifacts and the
+    platform-neutral core - and deliberately NOT 'vanillabp-spring-boot-integration',
+    which is what an extension of version 1 had to inherit its base classes from. Adding
+    that dependency here would make this module stop proving anything. -->
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-autoconfigure</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.vanillabp</groupId>
+      <artifactId>vanillabp-extension-spi</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.vanillabp</groupId>
+      <artifactId>vanillabp-integration-spi</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.vanillabp.adapter</groupId>
+      <artifactId>migration-adapter</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+</project>

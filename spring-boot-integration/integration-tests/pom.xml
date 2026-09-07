@@ -15,12 +15,14 @@
 
   <modules>
     <module>dummy-extension</module>
+    <module>sample-extension</module>
     <module>test-applications</module>
     <module>main-integration-test</module>
     <module>transaction-annotation-integration-test</module>
     <module>outbox-jpa-integration-test</module>
     <module>outbox-mongo-integration-test</module>
     <module>outbox-mixed-integration-test</module>
+    <module>extension-integration-test</module>
     <module>workflowmodule-integration-tests</module>
     <module>fatjar-integration-test</module>
   </modules>

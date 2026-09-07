@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:extension-it;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      ddl-auto: create
+vanillabp:
+  adapters:
+    the-bpms:
+      type: dummy
+      test: 1
+  extensions:
+    sample:
+      greeting: Hello
+      unused: whatever
+  workflow-modules:
+    extension-module:
+      adapters:
+        the-bpms:
+          resources-location: classpath*:extension-module/processes/dummy
+      extensions:
+        sample:
+          greeting: Servus
+extension-module:
+  nothing: there
