@@ -155,12 +155,14 @@ For an adapter nothing is mandatory: `AdapterDeploymentService#processVersionCat
 `null` by default, and the check stays as silent about a renamed id as it was before for a BPMS
 whose adapter does not implement it.
 
-**Whether the workflows under the old id are SERVED is the adapter's business**, and it is not the
-same everywhere: a Camunda 8 worker asks for a task definition and serves those workflows as long as
-that name does not carry the process id, while the Camunda 7 adapter wires the tasks of the models it
-deploys and does not reach the old id yet. Both say which of the two you are in while the application
-starts. The way which asks nothing of a BPMS is to keep deploying the old model under its old id until
-its workflows have ended, and the wiki page
+**Whether the workflows under the old id are SERVED is the adapter's business**, and how far each
+one reaches is written in its own upgrade notes. What the platform contributes is the question they
+need: `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed(module)` names the declared ids
+together with what the application serves for each, so an adapter can compose a subscription from
+that instead of waiting for work under a name nobody asks for. Every adapter says
+while starting which workflows of a declared id it will serve and which it will not. The way which
+asks nothing of any BPMS is to keep deploying the old model under its old id until its workflows
+have ended, and the wiki page
 [Renaming a BPMN process](https://github.com/vanillabp/adapter-platform-integration/wiki/Renaming-a-BPMN-process)
 walks through both.
 

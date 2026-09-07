@@ -219,10 +219,12 @@ gaps.
 
 Which process ids are asked about is the core's question as well. A workflow module may declare a
 process id no BPMN file of this boot carries any more, which is how a renamed process keeps being
-served, and an adapter cannot arrive at that id on its own, because it sees the model it just
-deployed and nothing else. So the core asks every adapter of the module for the catalog of such a
-declared-only id through `processVersionCatalogOf`, whose default answer is nothing, and an adapter
-whose BPMS cannot be searched by process id stays as it is.
+served, and an adapter cannot arrive at that id on its own: it comes from the annotations of the
+application, which only the core reads, and the models of this deployment name themselves and not
+the id somebody renamed away from. What the BPMS still holds under such an id an adapter can read
+perfectly well once it has been told the id. So the core asks every adapter of the module for the
+catalog of such a declared-only id through `processVersionCatalogOf`, whose default answer is
+nothing, and an adapter whose BPMS cannot be searched by process id stays as it is.
 
 That is also why a `deployedVersion` of null carries two meanings now. Where the module deployed
 the process, no version reported by the BPMS means there is no older one to speak of; where the id
@@ -841,3 +843,38 @@ What that costs is a contract. The log lines the double writes, the names of the
 registers and the way it turns a filename into a BPMN process id are things a consumer can rely on,
 so they are written down in `bpms-double/README.md` and changed deliberately. Everything else about
 the double, the class layout included, stays free to move.
+
+### 34. The core names the ids nobody deployed, the adapter decides what to do with them
+
+A workflow module may declare a BPMN process id it deploys nothing under, which is how a renamed
+process keeps being served. Only the core knows those ids, because they come from the annotations
+of the application and the models of this deployment name themselves rather than the id somebody
+renamed away from, and it already hands them over once per boot to ask what the BPMS holds for
+them (decision 15). What the BPMS holds under such an id is then readable by an adapter whose BPMS
+answers for a process id, which is what the Camunda 7 adapter does with the models its engine
+kept.
+
+Serving the workflows running under them is a second duty, and the core does not decide it. What
+it takes to reach such a workflow is BPMS knowledge: an identifier which carries no process id
+reaches the old id by itself, a Camunda 8 job type under `use-prefix` carries one and needs a
+subscription per name, and Camunda 7 needs the models its engine still holds, because the way a
+task is wired lives in them and nowhere else. So the core answers two things and stops there.
+`taskWiringOfProcessesNobodyDeployed` says WHICH ids a workflow module declares without a model
+and WHAT its `@WorkflowTask` methods serve for each of them, and the adapter composes its BPMS'
+own identifiers from that answer. Deciding it here would put one engine's notion of a
+subscription into the core, which is the mistake version 1 made with the outbox.
+
+The method is named after the question rather than after today's answer, and that is deliberate.
+What an application may name its wiring by belongs to the surface of `spi-for-java` and can
+widen; what an adapter needs from the core does not change, being the wiring in the form it
+composes its own identifiers from. A name saying "task definitions" would have to be changed
+with the first such widening, and every citation of it with it. An adapter therefore reads an
+entry as "what to compose from" and never assumes it is spelled the way its own BPMS spells an
+identifier.
+
+What an entry holds today is the `taskDefinition` of a method, so a method naming a BPMN element
+id contributes nothing and an id can be named with an empty collection. That is not a gap in the
+answer, it is the honest shape of it: an element is matched through the model, and the model of
+that id is the one thing the application does not have. An adapter which composes from task
+definitions can therefore say which workflows it will not reach, which is what the Camunda 8
+adapter does while it starts.
