@@ -157,9 +157,9 @@ whose adapter does not implement it.
 
 **Whether the workflows under the old id are SERVED is the adapter's business**, and how far each
 one reaches is written in its own upgrade notes. What the platform contributes is the question they
-need: `WorkflowTaskWiring#taskDefinitionsOfProcessesNobodyDeployed(module)` names the declared ids
-together with the task definitions the application serves for each, so an adapter can open a
-subscription for them instead of waiting for work under a name nobody asks for. Every adapter says
+need: `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed(module)` names the declared ids
+together with what the application serves for each, so an adapter can compose a subscription from
+that instead of waiting for work under a name nobody asks for. Every adapter says
 while starting which workflows of a declared id it will serve and which it will not. The way which
 asks nothing of any BPMS is to keep deploying the old model under its old id until its workflows
 have ended, and the wiki page

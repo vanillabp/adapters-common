@@ -599,21 +599,21 @@ public class RenamedBpmnProcessTest {
   }
 
   @Test
-  @DisplayName("The task definitions served for the old id are named, so an adapter can subscribe to them")
-  public void theTaskDefinitionsOfTheOldIdAreNamed() {
+  @DisplayName("What the methods serve for the old id is named, so an adapter can compose its own names")
+  public void whatIsServedForTheOldIdIsNamed() {
 
     theApplicationDeclares(ServiceKeepingTheOldGeneration.class);
     theAdapterDeployed(NEW_ID, "1");
 
     assertEquals(
         Map.of(OLD_ID, List.of("approve", "checkCredit")),
-        registry.taskDefinitionsOfProcessesNobodyDeployed(MODULE),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE),
         "what the application serves for the old id is what an adapter needs to reach those workflows");
 
   }
 
   @Test
-  @DisplayName("A method wired to a BPMN element names no task definition for the old id")
+  @DisplayName("A method wired to a BPMN element contributes nothing an adapter could compose from")
   public void aMethodWiredToAnElementNamesNoTaskDefinition() {
 
     theApplicationDeclares(ServiceWiredToAnElementOfTheOldModel.class);
@@ -621,7 +621,7 @@ public class RenamedBpmnProcessTest {
 
     assertEquals(
         Map.of(OLD_ID, List.of("approve")),
-        registry.taskDefinitionsOfProcessesNobodyDeployed(MODULE),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE),
         "the method wired to an element contributes nothing an adapter could subscribe to");
 
   }
@@ -636,11 +636,11 @@ public class RenamedBpmnProcessTest {
 
     assertEquals(
         java.util.Set.of(OLD_ID),
-        registry.taskDefinitionsOfProcessesNobodyDeployed(MODULE).keySet(),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE).keySet(),
         "the called process was deployed, so it is not what a rename left behind");
     assertEquals(
         Map.of(),
-        registry.taskDefinitionsOfProcessesNobodyDeployed("another-module"),
+        registry.taskWiringOfProcessesNobodyDeployed("another-module"),
         "a workflow module without a declared-only id names nothing");
 
   }
@@ -653,7 +653,7 @@ public class RenamedBpmnProcessTest {
 
     assertEquals(
         Map.of(),
-        registry.taskDefinitionsOfProcessesNobodyDeployed(MODULE),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE),
         "the same answer the version question gives: nothing here says a process was renamed");
 
   }

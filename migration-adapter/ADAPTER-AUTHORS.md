@@ -322,9 +322,11 @@ while wiring, searching by the id you would have deployed it under (your prefix,
 answer `null`, nothing changes for your adapter.
 
 Serving those workflows is a second matter, and that one IS yours.
-`taskDefinitionsOfProcessesNobodyDeployed(module)` on `WorkflowTaskWiring` names the BPMN processes
-the application declares without a model, together with the task definitions its `@WorkflowTask`
-methods serve for each of them, and you may ask it any time after the module was deployed. Whether
+`taskWiringOfProcessesNobodyDeployed(module)` on `WorkflowTaskWiring` names the BPMN processes the
+application declares without a model, together with what its `@WorkflowTask` methods serve for
+each of them, and you may ask it any time after the module was deployed. Read an entry as "what to
+compose my own identifier from" rather than as an identifier of your BPMS: today it is the
+`taskDefinition` a method names, and what an application may name its wiring by can widen. Whether
 you have to act on it depends on how your BPMS hands work out. Where a task is addressed by a name
 which does not carry the process id, such a workflow is served without anybody doing anything, and
 there is nothing for you here. Camunda 8 under `use-prefix` is the other case: a job type is scoped
@@ -739,7 +741,7 @@ against the real thing; the double is for the tests where a BPMS is in the way.
    and you call none of them; the only thing which comes back to you there is
    `processVersionCatalogOf`, answering for an id the application declares without deploying it,
    scoped the way you scope every other id. Those declared ids are also yours to ask about, with
-   `taskDefinitionsOfProcessesNobodyDeployed`, wherever your BPMS hands the work of a renamed
+   `taskWiringOfProcessesNobodyDeployed`, wherever your BPMS hands the work of a renamed
    process out under a name your subscriptions do not carry.
 3. A handler per operation your BPMS can serve, and only the operations which allow it left out.
    Phase one asks, phase two acts, idempotently, throwing on anything but "already gone".

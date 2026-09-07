@@ -39,9 +39,9 @@ import java.util.Collection;
  * ended up with, which is why this one stays here.
  * <p>
  * What an adapter may ASK at any point of the pipeline, rather than having to report:
- * {@link #taskDefinitionsOfProcessesNobodyDeployed(String)} - the BPMN processes the
- * application declares without bringing a model for them, which is what a renamed BPMN
- * process leaves behind, together with what it serves for each of them.
+ * {@link #taskWiringOfProcessesNobodyDeployed(String)} - what the application's methods
+ * serve for a BPMN process it declares without bringing a model, which is what a renamed
+ * BPMN process leaves behind.
  * <p>
  * <b>What the core does on its own</b>, once the last adapter of a workflow module
  * finished deploying: {@link #validateNoUnwiredWorkflowTaskMethods(String)},
@@ -358,21 +358,21 @@ public interface WorkflowTaskWiring {
   }
 
   /**
-   * The BPMN processes of a workflow module the application DECLARES without bringing a
-   * model for them, and the task definitions its <code>&#64;WorkflowTask</code> methods
-   * serve for each of them. An id nothing was deployed under is what renaming a BPMN
+   * What the <code>&#64;WorkflowTask</code> methods of a workflow module serve for the BPMN
+   * processes it DECLARES without bringing a model for them, in the form an adapter composes
+   * its BPMS' own identifiers from. An id nothing was deployed under is what renaming a BPMN
    * process leaves behind: the old name lives on in the BPMS with the workflows still
    * running on it, while the resources of the application carry the new one only.
    * <p>
    * An adapter asks this so that those workflows keep being served. The BPMS holds their
-   * models, so it knows the tasks it will hand out for them, but the identifiers it hands
-   * them out under may carry the process id ({@link
+   * models, so it knows the tasks it will hand out for them, but the identifier it hands them
+   * out under may carry the process id ({@link
    * io.vanillabp.integration.adapter.spi.NameClashAvoidance#USE_PREFIX} scopes a Camunda 8
    * job type by the process it was deployed with) - and then the subscriptions of the
-   * deployed processes reach none of them. Whether that matters, and what to do about it,
-   * is the adapter's to decide: open a subscription per task definition of the old id,
-   * wire the models the BPMS still holds under it, or nothing at all where the BPMS
-   * serves such a workflow anyway.
+   * deployed processes reach none of them. Whether that matters, and what to do about it, is
+   * the adapter's to decide: compose a subscription per entry of this answer, read the models
+   * the BPMS still holds under the id, or do nothing at all where such a workflow is served
+   * anyway.
    * <p>
    * Which ids are named is the same question
    * {@link #registerVersionsOfProcessesNobodyDeployed} answers, and the same answer: an id
@@ -380,13 +380,23 @@ public interface WorkflowTaskWiring {
    * deployed. A workflow service whose processes were none of them deployed is waiting for
    * a model which has not arrived yet, which says nothing about a rename.
    * <p>
-   * A task definition is what a <code>&#64;WorkflowTask</code> method names, plain and
-   * unscoped, so an adapter scopes it the way it scopes the ones of a deployed model. A
-   * method wired to a BPMN element ID instead (<code>&#64;WorkflowTask(id = ...)</code>)
-   * names no task definition and contributes nothing here: without a model there is
-   * nothing to read an element's task definition off. So an id can be named with an EMPTY
-   * collection, and an adapter which subscribes by task definition can say that those
-   * workflows are the ones it will not reach.
+   * <b>What an entry holds</b> is what the application named its wiring by, plain and
+   * unscoped, so an adapter scopes it the way it scopes the wiring of a model it deployed.
+   * Today that is the <code>taskDefinition</code> of a method
+   * (<code>&#64;WorkflowTask(taskDefinition = ...)</code>, which defaults to the method's
+   * name), and a method naming a BPMN element id instead
+   * (<code>&#64;WorkflowTask(id = ...)</code>) contributes nothing: an element is matched
+   * through the model, and the model of that id is the one thing the application does not
+   * have. So an id can be named with an EMPTY collection, and an adapter which composes its
+   * identifiers from task definitions can say that those workflows are the ones it will not
+   * reach.
+   * <p>
+   * Read an entry as "what to compose from" rather than as an identifier of your BPMS. What
+   * an application may name its wiring by belongs to the surface of
+   * <code>spi-for-java</code> and can widen, while what an adapter needs from the core does
+   * not change, which is why this method is named after the question rather than after
+   * today's answer - see decision 34 in the repository's DECISIONS.md. An adapter must
+   * therefore not assume that a value is spelled the way its own BPMS spells one.
    * <p>
    * Answered after the workflow module finished deploying, which is when the difference
    * between declared and deployed is settled. Asking earlier answers less, never
@@ -394,10 +404,10 @@ public interface WorkflowTaskWiring {
    * rather than making a test double of this SPI invent declarations.
    *
    * @param workflowModuleId The workflow module ID
-   * @return The plain task definitions per plain BPMN process ID, both sorted; empty
-   *         where the module declares no id it deployed nothing under
+   * @return What the methods serve, per plain BPMN process ID, both sorted; empty where the
+   *         module declares no id it deployed nothing under
    */
-  default java.util.Map<String, Collection<String>> taskDefinitionsOfProcessesNobodyDeployed(
+  default java.util.Map<String, Collection<String>> taskWiringOfProcessesNobodyDeployed(
       final String workflowModuleId) {
 
     return java.util.Map.of();

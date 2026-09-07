@@ -1118,17 +1118,19 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
   }
 
   @Override
-  public Map<String, Collection<String>> taskDefinitionsOfProcessesNobodyDeployed(
+  public Map<String, Collection<String>> taskWiringOfProcessesNobodyDeployed(
       final String workflowModuleId) {
 
-    final var servedTaskDefinitions = new java.util.TreeMap<String, Collection<String>>();
+    final var servedWiring = new java.util.TreeMap<String, Collection<String>>();
     entriesNobodyDeployed(workflowModuleId)
-        .forEach(entry -> servedTaskDefinitions
+        .forEach(entry -> servedWiring
             .put(
                 entry.getKey().bpmnProcessId(),
-                // a method wired to a BPMN element id names no task definition, and
-                // without a model there is nothing to read one off - the SPI says that an
-                // id may therefore be named with nothing served
+                // the task definition is what an adapter can compose its own identifier
+                // from. A method wired to a BPMN element id is matched through the model,
+                // and the model of that id is the one thing the application does not have,
+                // so it contributes nothing - which is why the SPI says that an id may be
+                // named with nothing served
                 List
                     .copyOf(entry.getValue().handlers)
                     .stream()
@@ -1137,7 +1139,7 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
                     .distinct()
                     .sorted()
                     .toList()));
-    return servedTaskDefinitions;
+    return servedWiring;
 
   }
 

@@ -2422,10 +2422,12 @@ Three consequences run through the check from there:
   This is why the core asks the adapters BEFORE `validateNoUnwiredWorkflowTaskMethods`.
 
 The check is one half of what such an id needs; the other is that its workflows keep being served,
-and that half belongs to the adapters. `WorkflowTaskWiring#taskDefinitionsOfProcessesNobodyDeployed`
-is where they read the declared ids together with the task definitions the application serves for
-each of them, which the registry answers from the same entries the version question uses
-(`entriesNobodyDeployed`), so both speak about exactly the same ids. What an adapter does with them
+and that half belongs to the adapters. `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed`
+is where they read the declared ids together with what the application serves for each of them,
+which the registry answers from the same entries the version question uses
+(`entriesNobodyDeployed`), so both speak about exactly the same ids. Why that method is named
+after the question and not after today's answer, which is the `taskDefinition` of a method, is
+decision 34 of `DECISIONS.md`. What an adapter does with them
 is its own decision, because the need differs per BPMS: an identifier which does not carry the
 process id reaches the old id by itself, while a Camunda 8 job type under `use-prefix` does carry it
 and the jobs of those workflows then wait for a worker nobody opened. A method wired to a BPMN
