@@ -1107,31 +1107,73 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
       final String adapterId,
       final java.util.function.BiFunction<String, String, io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog> catalogOfProcess) {
 
-    final var entriesOfTheModule = entries
-        .entrySet()
-        .stream()
-        .filter(entry -> entry.getKey().workflowModuleId().equals(workflowModuleId))
-        .toList();
-    // a class serving a BPMN process this boot deployed is a class in play, and a further
-    // id IT declares is the renamed process this is about. A class whose processes were
-    // NONE of them deployed says nothing about a rename: it is a workflow service waiting
-    // for a model which has not arrived yet, and asking a BPMS about every id of it would
-    // bury the one case worth reporting
-    final var classesInPlay = entriesOfTheModule
-        .stream()
-        .filter(entry -> entry.getValue().wiringValidated)
-        .flatMap(entry -> entry.getValue().workflowServiceClasses.stream())
-        .collect(Collectors.toSet());
-    entriesOfTheModule
-        .stream()
-        .filter(entry -> !entry.getValue().wiringValidated)
-        .filter(entry -> entry.getValue().workflowServiceClasses.stream().anyMatch(classesInPlay::contains))
+    entriesNobodyDeployed(workflowModuleId)
         .forEach(entry -> processVersions
             .register(
                 adapterId,
                 workflowModuleId,
                 entry.getKey().bpmnProcessId(),
                 catalogOfProcess.apply(workflowModuleId, entry.getKey().bpmnProcessId())));
+
+  }
+
+  @Override
+  public Map<String, Collection<String>> taskDefinitionsOfProcessesNobodyDeployed(
+      final String workflowModuleId) {
+
+    final var servedTaskDefinitions = new java.util.TreeMap<String, Collection<String>>();
+    entriesNobodyDeployed(workflowModuleId)
+        .forEach(entry -> servedTaskDefinitions
+            .put(
+                entry.getKey().bpmnProcessId(),
+                // a method wired to a BPMN element id names no task definition, and
+                // without a model there is nothing to read one off - the SPI says that an
+                // id may therefore be named with nothing served
+                List
+                    .copyOf(entry.getValue().handlers)
+                    .stream()
+                    .map(WorkflowTaskHandler::getTaskDefinition)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .sorted()
+                    .toList()));
+    return servedTaskDefinitions;
+
+  }
+
+  /**
+   * The registry entries of a workflow module which hold <code>&#64;WorkflowTask</code>
+   * methods for a BPMN process nothing was deployed under during this boot - the id a
+   * renamed BPMN process left behind.
+   * <p>
+   * It answers fewer ids than the module declares, and both callers want the same fewer:
+   * a class serving a BPMN process this boot deployed is a class in play, and a further id
+   * IT declares is the renamed process this is about. A class whose processes were NONE of
+   * them deployed says nothing about a rename - it is a workflow service waiting for a
+   * model which has not arrived yet, and treating every id of it as renamed would bury
+   * the one case worth speaking about.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @return The entries, in no particular order
+   */
+  private List<Map.Entry<RegistryKey, RegistryEntry>> entriesNobodyDeployed(
+      final String workflowModuleId) {
+
+    final var entriesOfTheModule = entries
+        .entrySet()
+        .stream()
+        .filter(entry -> entry.getKey().workflowModuleId().equals(workflowModuleId))
+        .toList();
+    final var classesInPlay = entriesOfTheModule
+        .stream()
+        .filter(entry -> entry.getValue().wiringValidated)
+        .flatMap(entry -> entry.getValue().workflowServiceClasses.stream())
+        .collect(Collectors.toSet());
+    return entriesOfTheModule
+        .stream()
+        .filter(entry -> !entry.getValue().wiringValidated)
+        .filter(entry -> entry.getValue().workflowServiceClasses.stream().anyMatch(classesInPlay::contains))
+        .toList();
 
   }
 

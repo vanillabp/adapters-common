@@ -321,6 +321,20 @@ while wiring, searching by the id you would have deployed it under (your prefix,
 `null` where your BPMS cannot be asked about the versions of a process - the default. Where you
 answer `null`, nothing changes for your adapter.
 
+Serving those workflows is a second matter, and that one IS yours.
+`taskDefinitionsOfProcessesNobodyDeployed(module)` on `WorkflowTaskWiring` names the BPMN processes
+the application declares without a model, together with the task definitions its `@WorkflowTask`
+methods serve for each of them, and you may ask it any time after the module was deployed. Whether
+you have to act on it depends on how your BPMS hands work out. Where a task is addressed by a name
+which does not carry the process id, such a workflow is served without anybody doing anything, and
+there is nothing for you here. Camunda 8 under `use-prefix` is the other case: a job type is scoped
+by the process it was deployed with, so the jobs of the workflows under the old id carry a name no
+worker of the renamed application asks for, and nobody notices, because an unfetched job is not a
+failed one. Open a subscription per task definition of the old id, or wire the models your BPMS
+still holds under it, and say while starting what you cannot reach. An id may be named with no task
+definition at all: a method wired to a BPMN element id names none, and without a model there is
+nothing to read one off.
+
 `validateNoUnwiredWorkflowTaskMethods` comes after those versions on purpose: it is the reverse of
 the wiring check, every `@WorkflowTask` method held against the tasks of the whole module, and a
 method kept for a renamed process is indistinguishable from a method wired to nothing until the
@@ -724,7 +738,9 @@ against the real thing; the double is for the tests where a BPMS is in the way.
    or refused with a message. The module-level checks which follow the deployment are the core's
    and you call none of them; the only thing which comes back to you there is
    `processVersionCatalogOf`, answering for an id the application declares without deploying it,
-   scoped the way you scope every other id.
+   scoped the way you scope every other id. Those declared ids are also yours to ask about, with
+   `taskDefinitionsOfProcessesNobodyDeployed`, wherever your BPMS hands the work of a renamed
+   process out under a name your subscriptions do not carry.
 3. A handler per operation your BPMS can serve, and only the operations which allow it left out.
    Phase one asks, phase two acts, idempotently, throwing on anything but "already gone".
 4. Probes scoped, never advancing, `UNKNOWN_TO_BPMS` and `BPMS_UNAVAILABLE` mapped honestly, the

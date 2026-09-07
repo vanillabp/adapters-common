@@ -2421,6 +2421,17 @@ Three consequences run through the check from there:
   exempts one serving only older versions: no model of this boot carries the task it is wired to.
   This is why the core asks the adapters BEFORE `validateNoUnwiredWorkflowTaskMethods`.
 
+The check is one half of what such an id needs; the other is that its workflows keep being served,
+and that half belongs to the adapters. `WorkflowTaskWiring#taskDefinitionsOfProcessesNobodyDeployed`
+is where they read the declared ids together with the task definitions the application serves for
+each of them, which the registry answers from the same entries the version question uses
+(`entriesNobodyDeployed`), so both speak about exactly the same ids. What an adapter does with them
+is its own decision, because the need differs per BPMS: an identifier which does not carry the
+process id reaches the old id by itself, while a Camunda 8 job type under `use-prefix` does carry it
+and the jobs of those workflows then wait for a worker nobody opened. A method wired to a BPMN
+element id contributes nothing there, since reading an element's task definition needs the model
+which is exactly what is missing, so an id can be named with an empty answer.
+
 Watch the numbering when you configure anything for such an id: each BPMN process id is counted
 from 1 by its BPMS, so the versions of the old id and of the new one are different things with the
 same names. `outfaded-versions` therefore belongs at the workflow level
