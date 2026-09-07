@@ -288,6 +288,7 @@ arrives here.
 | `reportConcurrentTokenElements(module, process, elementIds)`                  | the elements which can put a second token into a running workflow; the core warns where the aggregate has no version attribute                                                                             |
 | `registerProcessVersions(adapterId, module, process, catalog)`                | only where your BPMS can place version tags. The core asks you again after the deployment, for the ids the application declared without a model - see below                                                |
 | `unsharedWorkflowAggregateProperties(module, process, names, adapterDefault)` | the identifiers your models read which the aggregate does not share, so the developer hears about it at startup                                                                                            |
+| `unsharedWorkflowAggregatePaths(module, process, paths, adapterDefault)`      | the same question for a whole dotted path, if you can read one out of your model. The core walks the declared types and names the segment which stops the path, or says nothing where they cannot decide   |
 | `resolveWorkflowAggregateIdName(module, process)`                             | the variable name a BPMS without a business key stores the aggregate's id under                                                                                                                            |
 
 If your BPMS can start a workflow by itself, ask `BpmsInitiatedStartInvoker` to validate the start

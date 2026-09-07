@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict;
 import io.vanillabp.spi.service.NoSyncWithBPMS;
 import io.vanillabp.spi.service.SyncWithBPMS;
 import lombok.extern.slf4j.Slf4j;
@@ -246,6 +247,191 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
             ? property.synced()
             : inherited)
         .orElse(false);
+
+  }
+
+  @Override
+  public PathVerdict whatAPathFinds(
+      final Class<?> workflowAggregateClass,
+      final List<String> path,
+      final AggregateSyncMode adapterDefault) {
+
+    if ((workflowAggregateClass == null) || (path == null) || path.isEmpty() || path
+        .stream()
+        .anyMatch(segment -> (segment == null) || segment.isBlank())) {
+      return PathVerdict.undecidable();
+    }
+    try {
+      return walk(workflowAggregateClass, path, adapterDefault);
+    } catch (final IllegalStateException ambiguousSyncModel) {
+      // an aggregate whose sync model cannot be interpreted is refused while the
+      // application boots (validateSyncModel), so nothing can act on a second report
+      // here - and a check about expressions must not be the thing which fails
+      log.debug(
+          "Could not decide what the path '{}' of '{}' finds: {}",
+          String.join(".", path),
+          workflowAggregateClass.getName(),
+          ambiguousSyncModel.getMessage());
+      return PathVerdict.undecidable();
+    }
+
+  }
+
+  /**
+   * Follows the path along the DECLARED types of its segments, threading the inherited
+   * mode exactly the way {@link #valuesOf} and {@link #convert} thread it: a nested
+   * type's own mode overrides what the attribute holding it passed down.
+   *
+   * @param workflowAggregateClass The type the first segment is read against
+   * @param path The segments
+   * @param adapterDefault The adapter's default
+   * @return What the path finds
+   */
+  private PathVerdict walk(
+      final Class<?> workflowAggregateClass,
+      final List<String> path,
+      final AggregateSyncMode adapterDefault) {
+
+    var owner = workflowAggregateClass;
+    final var declared = baseModeOf(owner);
+    var inherited = declared != null
+        ? declared
+        : adapterDefault == AggregateSyncMode.FULL;
+    for (var index = 0; index < path.size(); ++index) {
+      final var segment = path.get(index);
+      if (index >= MAX_DEPTH) {
+        // the values themselves are cut here (see convert), so whatever the declared
+        // types say about this segment says nothing about what the BPMS holds
+        return PathVerdict.undecidable();
+      }
+      if (holdsWhateverItWasGiven(owner)) {
+        return PathVerdict.undecidable();
+      }
+      if (travelsAsASingleValue(owner)) {
+        // asked BEFORE the abstract types are refused: 'Number' and 'CharSequence' are
+        // abstract and still say everything about what reaches the BPMS
+        return PathVerdict.nothingBelow(segment, index, owner.getSimpleName());
+      }
+      if (owner.isInterface() || Modifier.isAbstract(owner.getModifiers())) {
+        // whichever implementation the application assigned decides, and it may well
+        // carry the attribute this one has not got
+        return PathVerdict.undecidable();
+      }
+      final var properties = propertiesOf(owner);
+      if (properties.isEmpty()) {
+        // no readable attribute at all: convert shares the value's text
+        return PathVerdict.nothingBelow(segment, index, owner.getSimpleName());
+      }
+      final var property = properties
+          .stream()
+          .filter(candidate -> candidate.name().equals(segment))
+          .findFirst();
+      if (property.isEmpty()) {
+        // what VanillaBP 1 resolved and the sync model does not IS an attribute, and
+        // one which can never be shared - a field without a getter, and an isX()
+        // returning something other than boolean (see isAggregateProperty)
+        return (findField(owner, segment) != null) || (version1OnlyGetter(owner, segment) != null)
+            ? PathVerdict.notShared(segment, index, owner.getSimpleName())
+            : PathVerdict.noSuchAttribute(segment, index, owner.getSimpleName());
+      }
+      final var synced = property.get().synced() != null
+          ? property.get().synced()
+          : inherited;
+      if (!synced) {
+        return PathVerdict.notShared(segment, index, owner.getSimpleName());
+      }
+      if (index == (path.size() - 1)) {
+        return PathVerdict.aSharedValue();
+      }
+      final var next = typeBehind(property.get().getter().getGenericReturnType());
+      if (next == null) {
+        return PathVerdict.undecidable();
+      }
+      owner = next;
+      final var ofType = baseModeOf(owner);
+      inherited = ofType != null
+          ? ofType
+          : synced;
+    }
+    // unreachable: the last segment answers inside the loop
+    return PathVerdict.undecidable();
+
+  }
+
+  /**
+   * Whether the declared type is a container of whatever it was given: an
+   * {@link Object}, a {@link Map} answering whatever key it happens to hold, or a
+   * collection whose elements the walk could not resolve. None of them can rule an
+   * attribute out.
+   *
+   * @param owner The declared type
+   * @return Whether the walk has to stay silent
+   */
+  private static boolean holdsWhateverItWasGiven(
+      final Class<?> owner) {
+
+    return (owner == Object.class) || Map.class.isAssignableFrom(owner) || Collection.class
+        .isAssignableFrom(owner);
+
+  }
+
+  /**
+   * Whether a value of that declared type reaches the BPMS as ONE value rather than as
+   * a structure of its own - the numbers, texts, booleans and characters
+   * {@link #convert} passes through, the enums it turns into their name and the JDK
+   * value types it turns into their text. Nothing below such a value exists in the
+   * BPMS, which is what makes <code>order.dueDate.year</code> read nothing where
+   * <code>dueDate</code> is a {@code LocalDate}.
+   *
+   * @param owner The declared type
+   * @return Whether the value carries no members
+   */
+  private static boolean travelsAsASingleValue(
+      final Class<?> owner) {
+
+    return owner.isPrimitive() || owner.isEnum() || CharSequence.class
+        .isAssignableFrom(owner) || Number.class
+            .isAssignableFrom(owner) || (owner == Boolean.class) || (owner == Character.class) || isJdkValueType(
+                owner);
+
+  }
+
+  /**
+   * The declared type the NEXT segment is read against: the attribute's own type, or
+   * the element type of a collection or an array, because a model navigating into one
+   * reads an element. <code>null</code> wherever the type arguments do not say what the
+   * elements are.
+   *
+   * @param type The attribute's generic type
+   * @return The type to continue with, or <code>null</code>
+   */
+  private static Class<?> typeBehind(
+      final java.lang.reflect.Type type) {
+
+    if (type instanceof Class<?> clazz) {
+      if (clazz.isArray()) {
+        return typeBehind(clazz.getComponentType());
+      }
+      // a raw collection: what its elements are is not written down anywhere
+      return Collection.class.isAssignableFrom(clazz)
+          ? null
+          : clazz;
+    }
+    if (type instanceof java.lang.reflect.ParameterizedType parameterized) {
+      final var raw = typeBehind(parameterized.getRawType());
+      if ((raw != null) && !Collection.class.isAssignableFrom(raw)) {
+        return raw;
+      }
+      final var arguments = parameterized.getActualTypeArguments();
+      return arguments.length == 1
+          ? typeBehind(arguments[0])
+          : null;
+    }
+    if (type instanceof java.lang.reflect.GenericArrayType genericArray) {
+      return typeBehind(genericArray.getGenericComponentType());
+    }
+    // a wildcard or a type variable names no type the walk could read
+    return null;
 
   }
 

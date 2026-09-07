@@ -162,6 +162,9 @@ public interface WorkflowTaskWiring {
    *          otherwise
    * @return The names which are attributes of the aggregate but not shared, in the
    *         order given; empty if the BPMN process is unknown
+   * @see #unsharedWorkflowAggregatePaths(String, String, java.util.Collection,
+   *      io.vanillabp.integration.adapter.spi.AggregateSyncMode) for an adapter which can
+   *      read a whole path out of its model, which is the fuller question
    */
   default java.util.Collection<String> unsharedWorkflowAggregateProperties(
       final String workflowModuleId,
@@ -170,6 +173,45 @@ public interface WorkflowTaskWiring {
       final io.vanillabp.integration.adapter.spi.AggregateSyncMode adapterDefault) {
 
     return java.util.List.of();
+
+  }
+
+  /**
+   * The same question for a PATH an expression reads
+   * (<code>order.customer.address.city</code>): which of the given paths stop short of a
+   * value the BPMS holds, and where.
+   * <p>
+   * An adapter which can read the whole path out of its model asks this instead of
+   * {@link #unsharedWorkflowAggregateProperties}, which answers about the first segment
+   * only. The nested case is the one worth asking about: the shared values are a
+   * structure, so an expression navigating into them meets the sync model at every
+   * segment, and an unshared segment two levels down reads <code>null</code> just as a
+   * top-level one does.
+   * <p>
+   * A path whose FIRST segment is no attribute of the aggregate at all is NOT reported,
+   * for the same reason the single-name question leaves it alone: the model may well
+   * provide a variable of that name. Everything below the first segment is reported,
+   * because there the aggregate is what the expression navigates.
+   * <p>
+   * The core answers from the DECLARED types of the segments and stays silent wherever
+   * they cannot decide, so a path which is missing from the answer means either "this
+   * works" or "this cannot be judged" - never "this was checked and found broken".
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param paths The paths read by the model, segments separated by dots
+   * @param adapterDefault What this adapter shares unless the application says
+   *          otherwise
+   * @return The reportable paths with what the walk found, keyed by the path as it was
+   *         given; empty if the BPMN process is unknown
+   */
+  default java.util.Map<String, io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict> unsharedWorkflowAggregatePaths(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final java.util.Collection<String> paths,
+      final io.vanillabp.integration.adapter.spi.AggregateSyncMode adapterDefault) {
+
+    return java.util.Map.of();
 
   }
 

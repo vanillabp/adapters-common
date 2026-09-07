@@ -922,3 +922,38 @@ The alternative was to demand that contracts be registered before the scan, enfo
 check. It would have worked, and it would have made the first question of every extension author a
 question about the boot order of two platforms.
 
+### 37. The core answers a path against the declared types, and says nothing where they cannot decide
+
+The values an aggregate shares are a nested structure, so a BPMN expression may navigate into them, and
+everything the sync model decides about a top-level attribute it decides about every segment below one. A
+model reading `order.internalCode` where that attribute carries `@NoSyncWithBPMS` therefore reads `null`,
+and on an embedded engine that is often silent: a gateway with a default flow takes it and a Camunda 7
+conditional event answers false and waits for good, with no incident and no log line. So the check an
+adapter runs while its models are deployed has to be able to ask about a path and not only about a name,
+which is what `WorkflowAggregateSync#whatAPathFinds` and `WorkflowTaskWiring#unsharedWorkflowAggregatePaths`
+are for.
+
+The walk resolves each segment against the DECLARED type of the one before it, using the same primitives
+which produce the values: the readable attributes of a type, the mode that type derives from its
+annotations, and the table deciding what a value becomes. It answers one of three gaps. The segment is a
+readable attribute the sync model keeps back. The type before it has no readable attribute of that name, so
+the shared values carry no such member. Or the value before it travels as ONE value, a number or a text,
+and therefore carries nothing below it, which is what makes `order.dueDate.year` read
+nothing where `dueDate` is a `LocalDate`.
+
+Where the declared types cannot decide, the answer is that nothing was decided, and no caller may read that
+as approval. A `Map` answers whatever key it happens to hold, a raw or wildcard collection hides its
+elements, an interface or an abstract type is whichever implementation the application assigned, and past
+the nesting limit the values are cut anyway. The walk judges no method call for the same reason: what
+`order.total.doubleValue()` resolves to depends on the runtime class the BPMS' serialization produced, which
+a declared type does not name.
+
+One residual risk is accepted rather than designed away. A concrete class can still be subclassed, so a
+segment which is no attribute of the declared type may be one of the object actually assigned. The answer
+names the declared type it read against, which is what lets a developer see a false positive for what it is,
+and the alternative would be to refuse every answer about any non-final type and thereby report nothing at
+all. The FIRST segment is the one exception a caller has to handle itself, because a name which is no
+attribute of the aggregate may simply be a variable the model provides.
+
+`AggregateSyncSupportTest` holds the five answers and the refusals, `WorkflowTaskRegistryTest` the boundary
+around the first segment.

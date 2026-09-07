@@ -14,6 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.vanillabp.integration.adapter.migration.sync.AggregateSyncSupport;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict.Kind;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.NoSyncWithBPMS;
 import io.vanillabp.spi.service.SyncWithBPMS;
@@ -523,6 +525,201 @@ public class AggregateSyncSupportTest {
   public void nullAggregateSharesNothing() {
 
     assertEquals(Map.of(), full(null));
+
+  }
+
+  public interface PathAddress {
+
+    String getCity();
+
+  }
+
+  public static class PathCustomer {
+
+    /**
+     * A field without a getter: VanillaBP 1 resolved it, the sync model never shares it,
+     * and a path reading it below the first segment has to be reported the same way.
+     */
+    private String nickname;
+
+    public String getName() {
+      return "Ada";
+    }
+
+  }
+
+  public static class PathItem {
+
+    public java.math.BigDecimal getPrice() {
+      return java.math.BigDecimal.ONE;
+    }
+
+  }
+
+  public static class PathOrder {
+
+    public PathCustomer getCustomer() {
+      return new PathCustomer();
+    }
+
+    public java.time.LocalDate getDueDate() {
+      return java.time.LocalDate.parse("2027-03-04");
+    }
+
+    public ItemSize getSize() {
+      return ItemSize.BIG;
+    }
+
+    public List<PathItem> getItems() {
+      return List.of(new PathItem());
+    }
+
+    public Map<String, String> getLabels() {
+      return Map.of("kind", "express");
+    }
+
+    public PathAddress getAddress() {
+      return () -> "Vienna";
+    }
+
+    public List<?> getAttachments() {
+      return List.of();
+    }
+
+    @NoSyncWithBPMS
+    public String getInternalCode() {
+      return "IC-9";
+    }
+
+  }
+
+  public static class PathAggregate {
+
+    public PathOrder getOrder() {
+      return new PathOrder();
+    }
+
+    @NoSyncWithBPMS
+    public PathOrder getHiddenOrder() {
+      return new PathOrder();
+    }
+
+  }
+
+  private PathVerdict find(
+      final Class<?> aggregateClass,
+      final String path) {
+
+    return testee
+        .whatAPathFinds(aggregateClass, List.of(path.split("\\.")), AggregateSyncMode.FULL);
+
+  }
+
+  @Test
+  @DisplayName("A path reaching shared attributes all the way down finds a value")
+  public void aWholeSharedPathFindsAValue() {
+
+    assertEquals(Kind.SHARED_VALUE, find(PathAggregate.class, "order").kind());
+    assertEquals(Kind.SHARED_VALUE, find(PathAggregate.class, "order.customer.name").kind());
+    // navigating into a collection reads an element, so its element type continues
+    assertEquals(Kind.SHARED_VALUE, find(PathAggregate.class, "order.items.price").kind());
+
+  }
+
+  @Test
+  @DisplayName("An unshared segment is named wherever in the path it sits")
+  public void anUnsharedSegmentIsNamed() {
+
+    final var top = find(PathAggregate.class, "hiddenOrder.customer.name");
+    assertEquals(Kind.NOT_SHARED, top.kind());
+    assertEquals("hiddenOrder", top.segment());
+    assertEquals(0, top.segmentIndex());
+    assertEquals("PathAggregate", top.segmentOwner());
+
+    final var nested = find(PathAggregate.class, "order.internalCode");
+    assertEquals(Kind.NOT_SHARED, nested.kind());
+    assertEquals("internalCode", nested.segment());
+    assertEquals(1, nested.segmentIndex());
+    assertEquals("PathOrder", nested.segmentOwner());
+
+    // the migration case two levels down: a field without a getter is an attribute
+    // version 1 read and this version can never share
+    final var withoutAGetter = find(PathAggregate.class, "order.customer.nickname");
+    assertEquals(Kind.NOT_SHARED, withoutAGetter.kind());
+    assertEquals("nickname", withoutAGetter.segment());
+    assertEquals("PathCustomer", withoutAGetter.segmentOwner());
+
+  }
+
+  @Test
+  @DisplayName("A segment the declared type has not got is named with the type which has not got it")
+  public void aSegmentWhichIsNoAttributeIsNamed() {
+
+    final var verdict = find(PathAggregate.class, "order.customer.town");
+    assertEquals(Kind.NO_SUCH_ATTRIBUTE, verdict.kind());
+    assertEquals("town", verdict.segment());
+    assertEquals(2, verdict.segmentIndex());
+    assertEquals("PathCustomer", verdict.segmentOwner());
+
+    // the first segment is answered the same way; whether a name which is no attribute
+    // at all is worth a word is the caller's decision, not this walk's
+    assertEquals(Kind.NO_SUCH_ATTRIBUTE, find(PathAggregate.class, "somethingTheModelProvides").kind());
+
+  }
+
+  @Test
+  @DisplayName("Nothing lives below a value which travels as a number, a text or an enum's name")
+  public void aSingleValueCarriesNothingBelowIt() {
+
+    // the silent case a conditional event turns into an endless wait: the date reaches
+    // the BPMS as '2027-03-04', and a text has no 'year'
+    final var temporal = find(PathAggregate.class, "order.dueDate.year");
+    assertEquals(Kind.NOTHING_BELOW, temporal.kind());
+    assertEquals("year", temporal.segment());
+    assertEquals("LocalDate", temporal.segmentOwner());
+
+    // an enum arrives as its name, so the String API is all there is
+    assertEquals(Kind.NOTHING_BELOW, find(PathAggregate.class, "order.size.blank").kind());
+    // and a number is a number
+    assertEquals(Kind.NOTHING_BELOW, find(PathAggregate.class, "order.items.price.scale").kind());
+
+  }
+
+  @Test
+  @DisplayName("Wherever the declared type cannot decide, nothing is claimed")
+  public void whatCannotBeDecidedIsNotClaimed() {
+
+    // a map answers whatever key it happens to hold
+    assertEquals(Kind.UNDECIDABLE, find(PathAggregate.class, "order.labels.kind").kind());
+    // an interface is whichever implementation the application assigned
+    assertEquals(Kind.UNDECIDABLE, find(PathAggregate.class, "order.address.city").kind());
+    // a collection which does not say what its elements are
+    assertEquals(Kind.UNDECIDABLE, find(PathAggregate.class, "order.attachments.name").kind());
+    // and nothing to walk at all
+    assertEquals(
+        Kind.UNDECIDABLE,
+        testee.whatAPathFinds(PathAggregate.class, List.of(), AggregateSyncMode.FULL).kind());
+    assertEquals(Kind.UNDECIDABLE, testee.whatAPathFinds(PathAggregate.class, null, AggregateSyncMode.FULL).kind());
+    assertEquals(
+        Kind.UNDECIDABLE,
+        testee.whatAPathFinds(null, List.of("order"), AggregateSyncMode.FULL).kind());
+    assertEquals(
+        Kind.UNDECIDABLE,
+        testee.whatAPathFinds(PathAggregate.class, List.of("order", " "), AggregateSyncMode.FULL).kind());
+
+  }
+
+  @Test
+  @DisplayName("The adapter's default decides for a path of an aggregate carrying no annotation")
+  public void theAdapterDefaultDecidesForAPathToo() {
+
+    assertEquals(
+        Kind.SHARED_VALUE,
+        testee.whatAPathFinds(PlainAggregate.class, List.of("content"), AggregateSyncMode.FULL).kind());
+    final var unshared = testee
+        .whatAPathFinds(PlainAggregate.class, List.of("content"), AggregateSyncMode.NONE);
+    assertEquals(Kind.NOT_SHARED, unshared.kind());
+    assertEquals("content", unshared.segment());
 
   }
 
