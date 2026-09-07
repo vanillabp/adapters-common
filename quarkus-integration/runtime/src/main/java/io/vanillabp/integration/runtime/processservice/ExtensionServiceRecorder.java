@@ -1,5 +1,6 @@
 package io.vanillabp.integration.runtime.processservice;
 
+import java.lang.reflect.Type;
 import java.util.function.Function;
 
 import io.quarkus.arc.Arc;
@@ -9,6 +10,7 @@ import io.vanillabp.integration.adapter.migration.processservice.ExtensionAggreg
 import io.vanillabp.integration.extension.spi.election.WorkflowElection;
 import io.vanillabp.integration.extension.spi.handler.ExtensionHandlers;
 import io.vanillabp.integration.extension.spi.service.AggregateServiceFactory;
+import jakarta.enterprise.inject.Any;
 
 /**
  * Builds the per-aggregate service of an extension when the application first injects
@@ -19,6 +21,10 @@ import io.vanillabp.integration.extension.spi.service.AggregateServiceFactory;
  * factory and the process service of the aggregate both exist by then, and looking them
  * up here is what makes injecting the service OPTIONAL - an application which never asks
  * for it never runs any of this.
+ * <p>
+ * Both lookups name the type ARGUMENT they mean. Two beans of one raw type are told apart
+ * by it, and ArC resolves a bean whose type is parameterized by asking for that
+ * parameterized type.
  */
 @Recorder
 public class ExtensionServiceRecorder {
@@ -39,9 +45,11 @@ public class ExtensionServiceRecorder {
 
       final var factory = Arc
           .container()
-          .select(AggregateServiceFactory.class, jakarta.enterprise.inject.Any.Literal.INSTANCE)
+          .<AggregateServiceFactory<?>>listAll(
+              parameterized(AggregateServiceFactory.class, serviceInterface),
+              Any.Literal.INSTANCE)
           .stream()
-          .filter(candidate -> serviceInterface.equals(candidate.getServiceInterface()))
+          .map(io.quarkus.arc.InstanceHandle::get)
           .findFirst()
           .orElseThrow(() -> new IllegalStateException(
               """
@@ -52,9 +60,11 @@ public class ExtensionServiceRecorder {
 
       final var processService = Arc
           .container()
-          .select(ProcessServiceBaseCdiBean.class, jakarta.enterprise.inject.Any.Literal.INSTANCE)
+          .<ProcessServiceBaseCdiBean<?>>listAll(
+              parameterized(ProcessServiceBaseCdiBean.class, workflowAggregateClass),
+              Any.Literal.INSTANCE)
           .stream()
-          .filter(candidate -> workflowAggregateClass.equals(candidate.getWorkflowAggregateClass()))
+          .map(io.quarkus.arc.InstanceHandle::get)
           .findFirst()
           .orElseThrow(() -> new IllegalStateException(
               """
@@ -75,6 +85,43 @@ public class ExtensionServiceRecorder {
                   .get());
 
       return factory.createService(serviceContext);
+
+    };
+
+  }
+
+  /**
+   * The type <code>raw&lt;argument&gt;</code>, which is what a bean of a generic type is
+   * registered under.
+   */
+  private static Type parameterized(
+      final Class<?> raw,
+      final Class<?> argument) {
+
+    return new java.lang.reflect.ParameterizedType() {
+
+      @Override
+      public Type[] getActualTypeArguments() {
+
+        return new Type[]{
+            argument
+        };
+
+      }
+
+      @Override
+      public Type getRawType() {
+
+        return raw;
+
+      }
+
+      @Override
+      public Type getOwnerType() {
+
+        return null;
+
+      }
 
     };
 

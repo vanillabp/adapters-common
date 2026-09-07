@@ -35,6 +35,20 @@ public class ExtensionServiceBuildStepProcessor {
    * @param recorder Builds a service when its bean is created
    * @param syntheticBeanProducer Collects the beans
    */
+  /**
+   * Keeps the extensions' factories alive. Nothing of the application injects them - the
+   * platform looks them up while it builds a service - and ArC removes beans nobody
+   * injects, the same shape as the wiring services of the deployment pipeline.
+   *
+   * @return What must not be removed
+   */
+  @BuildStep
+  io.quarkus.arc.deployment.UnremovableBeanBuildItem keepExtensionServiceFactories() {
+
+    return io.quarkus.arc.deployment.UnremovableBeanBuildItem.beanTypes(AggregateServiceFactory.class);
+
+  }
+
   @BuildStep
   @Record(ExecutionTime.RUNTIME_INIT)
   void buildExtensionServices(

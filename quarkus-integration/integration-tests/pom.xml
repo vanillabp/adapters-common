@@ -15,6 +15,7 @@
 
   <modules>
     <module>dummy-extension</module>
+    <module>sample-extension</module>
     <module>deployment-integration-tests</module>
     <module>test-applications</module>
     <module>main-integration-test</module>
