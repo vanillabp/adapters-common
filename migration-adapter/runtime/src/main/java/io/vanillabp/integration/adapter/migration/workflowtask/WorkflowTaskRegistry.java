@@ -1455,4 +1455,43 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
 
   }
 
+  @Override
+  public Map<String, io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict> unsharedWorkflowAggregatePaths(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final java.util.Collection<String> paths,
+      final io.vanillabp.integration.adapter.spi.AggregateSyncMode adapterDefault) {
+
+    if ((aggregateSync == null) || (paths == null) || paths.isEmpty()) {
+      return Map.of();
+    }
+    final var entry = entries.get(new RegistryKey(workflowModuleId, bpmnProcessId));
+    if ((entry == null) || (entry.processService == null)) {
+      return Map.of();
+    }
+    final var aggregateClass = entry.processService.getWorkflowAggregateClass();
+    final var reportable = new java.util.LinkedHashMap<String, io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict>();
+    paths
+        .stream()
+        .distinct()
+        .forEach(path -> {
+          final var verdict = aggregateSync
+              .whatAPathFinds(aggregateClass, List.of(path.split("\\.", -1)), adapterDefault);
+          if (!verdict.pathIsCut()) {
+            return;
+          }
+          // the first segment is the one which may be a variable of the model rather
+          // than an attribute of the aggregate - the same boundary the question about a
+          // single name draws
+          if ((verdict
+              .kind() == io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict.Kind.NO_SUCH_ATTRIBUTE) && (verdict
+                  .segmentIndex() == 0)) {
+            return;
+          }
+          reportable.put(path, verdict);
+        });
+    return reportable;
+
+  }
+
 }

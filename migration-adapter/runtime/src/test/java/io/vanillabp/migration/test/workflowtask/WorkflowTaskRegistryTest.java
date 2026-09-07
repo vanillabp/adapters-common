@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -1264,11 +1265,36 @@ public class WorkflowTaskRegistryTest {
       return "not for the engine";
     }
 
+    public SharingShipment getShipment() {
+      return new SharingShipment();
+    }
+
   }
 
-  @Test
-  @DisplayName("An expression reading an unshared attribute is reported, an unknown name is not")
-  public void unsharedAggregateProperties() {
+  /**
+   * A nested type of the sharing aggregate: what a model reads past the first dot.
+   */
+  public static class SharingShipment {
+
+    public String getTrackingCode() {
+      return "T-1";
+    }
+
+    @io.vanillabp.spi.service.NoSyncWithBPMS
+    public String getCarrierSecret() {
+      return "not for the engine either";
+    }
+
+  }
+
+  /**
+   * A registry serving the sharing aggregate, with the real sync model behind it: what
+   * the check asks about is the aggregate's own annotations, so a stub would answer
+   * nothing worth asserting.
+   *
+   * @return The registry
+   */
+  private WorkflowTaskRegistry registryServingTheSharingAggregate() {
 
     final var sharingPersistence = new AggregatePersistenceAware<SharingAggregate>() {
 
@@ -1322,6 +1348,15 @@ public class WorkflowTaskRegistryTest {
             .processServices(List.of(
                 new NoOpProcessService<SharingAggregate>()))
             .build());
+    return registryWithSync;
+
+  }
+
+  @Test
+  @DisplayName("An expression reading an unshared attribute is reported, an unknown name is not")
+  public void unsharedAggregateProperties() {
+
+    final var registryWithSync = registryServingTheSharingAggregate();
 
     // the attribute the application excluded is reported, the shared one is not, and a
     // name which is no attribute at all is none of this check's business (the model may
@@ -1361,6 +1396,53 @@ public class WorkflowTaskRegistryTest {
             MODULE,
             "NoSuchProcess",
             List.of("internalNote"),
+            io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL));
+
+  }
+
+  @Test
+  @DisplayName("A path is reported at the segment which stops it, and a name the model may provide is not")
+  public void unsharedAggregatePaths() {
+
+    final var registryWithSync = registryServingTheSharingAggregate();
+
+    final var reported = registryWithSync.unsharedWorkflowAggregatePaths(
+        MODULE,
+        "SharingProcess",
+        List.of(
+            "shipment.trackingCode",
+            "shipment.carrierSecret",
+            "shipment.town",
+            "internalNote",
+            "somethingTheModelProvides",
+            "somethingTheModelProvides.deeper"),
+        io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL);
+
+    // the shared path is silent; the unshared segment and the one the nested type has
+    // not got are named, and a FIRST segment which is no attribute stays out either way
+    // - the model may well provide that variable itself
+    assertEquals(
+        Set.of("shipment.carrierSecret", "shipment.town", "internalNote"),
+        reported.keySet());
+    assertEquals(
+        io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict.Kind.NOT_SHARED,
+        reported.get("shipment.carrierSecret").kind());
+    assertEquals("carrierSecret", reported.get("shipment.carrierSecret").segment());
+    assertEquals("SharingShipment", reported.get("shipment.carrierSecret").segmentOwner());
+    assertEquals(
+        io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict.Kind.NO_SUCH_ATTRIBUTE,
+        reported.get("shipment.town").kind());
+    assertEquals(
+        io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.PathVerdict.Kind.NOT_SHARED,
+        reported.get("internalNote").kind());
+
+    // an unknown process yields nothing rather than a guess
+    assertEquals(
+        Map.of(),
+        registryWithSync.unsharedWorkflowAggregatePaths(
+            MODULE,
+            "NoSuchProcess",
+            List.of("shipment.carrierSecret"),
             io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL));
 
   }
