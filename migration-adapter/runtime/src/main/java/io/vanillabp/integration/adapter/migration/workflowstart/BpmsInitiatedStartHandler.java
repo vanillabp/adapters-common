@@ -5,9 +5,11 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Supplier;
 
+import io.vanillabp.integration.adapter.migration.handler.HandlerContexts;
 import io.vanillabp.integration.adapter.migration.workflowtask.InheritedVersions;
 import io.vanillabp.integration.adapter.migration.workflowtask.VersionRange;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartContext;
+import io.vanillabp.integration.extension.spi.handler.HandlerValueSource;
 
 /**
  * One <code>&#64;WorkflowStartedByBpms</code> method of a workflow service class,
@@ -17,26 +19,13 @@ import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartCont
 @SuppressWarnings("LombokGetterMayBeUsed")
 public class BpmsInitiatedStartHandler {
 
-  /**
-   * Binds one parameter of the method from the aggregate VanillaBP built and the
-   * adapter's notification.
-   */
-  @FunctionalInterface
-  interface ParameterBinder {
-
-    Object bind(
-        Object workflowAggregate,
-        BpmsInitiatedStartContext context);
-
-  }
-
   private final Class<?> workflowServiceClass;
 
   private final Method method;
 
   private final Supplier<Object> workflowServiceBean;
 
-  private final List<ParameterBinder> binders;
+  private final List<HandlerValueSource> binders;
 
   /**
    * The BPMN id of the start event this method serves, or <code>null</code> for
@@ -65,7 +54,7 @@ public class BpmsInitiatedStartHandler {
       final Class<?> workflowServiceClass,
       final Method method,
       final Supplier<Object> workflowServiceBean,
-      final List<ParameterBinder> binders,
+      final List<HandlerValueSource> binders,
       final String startEventId,
       final InheritedVersions.EffectiveVersions versions,
       final boolean returnsAggregate) {
@@ -240,9 +229,10 @@ public class BpmsInitiatedStartHandler {
       final Object workflowAggregate,
       final BpmsInitiatedStartContext context) {
 
+    final var handlerContext = HandlerContexts.of(workflowAggregate, context, context.getVariables());
     final var arguments = binders
         .stream()
-        .map(binder -> binder.bind(workflowAggregate, context))
+        .map(binder -> binder.valueFor(handlerContext))
         .toArray();
     try {
       return method.invoke(workflowServiceBean.get(), arguments);
