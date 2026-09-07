@@ -98,7 +98,8 @@ public class ProcessServiceBuildStepProcessor {
       final BuildProducer<GeneratedBeanBuildItem> generatedBeanBuildItemBuildProducer,
       final BuildProducer<ReflectiveClassBuildItem> reflectiveClassBuildItemProducer,
       final BuildProducer<UnremovableBeanBuildItem> unremovableBeanBuildItemProducer,
-      final BuildProducer<AdditionalBeanBuildItem> additionalBeanBuildItemBuildProducer) {
+      final BuildProducer<AdditionalBeanBuildItem> additionalBeanBuildItemBuildProducer,
+      final BuildProducer<VanillaBpWorkflowAggregatesBuildItem> workflowAggregatesProducer) {
 
     final var aggregatePersistenceAwares = applicationArchivesBuildItem
         // search all archives of the project
@@ -313,6 +314,15 @@ public class ProcessServiceBuildStepProcessor {
               String.join(";", workflowTaskRegistrations));
 
         });
+
+    // the aggregates are the universe an extension's per-aggregate service is built for
+    // as well - published here rather than scanned a second time
+    workflowAggregatesProducer
+        .produce(new VanillaBpWorkflowAggregatesBuildItem(servicesByAggregate
+            .keySet()
+            .stream()
+            .map(Type::name)
+            .toList()));
 
   }
 

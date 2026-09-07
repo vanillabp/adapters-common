@@ -3,23 +3,16 @@ package io.vanillabp.integration.adapter.migration.workflowtask;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import io.vanillabp.integration.adapter.migration.values.ValueConversion;
-import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskHandler.ParameterBinder;
-import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
+import io.vanillabp.integration.adapter.migration.handler.CoreParameterBinders;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
-import io.vanillabp.spi.service.MultiInstanceElement;
-import io.vanillabp.spi.service.MultiInstanceElementResolver;
-import io.vanillabp.spi.service.MultiInstanceIndex;
-import io.vanillabp.spi.service.MultiInstanceTotal;
-import io.vanillabp.spi.service.NoResolver;
+import io.vanillabp.integration.extension.spi.handler.CoreHandlerParameter;
+import io.vanillabp.integration.extension.spi.handler.HandlerValueSource;
 import io.vanillabp.spi.service.TaskEvent;
 import io.vanillabp.spi.service.TaskId;
 import io.vanillabp.spi.service.TaskParam;
@@ -40,6 +33,17 @@ import io.vanillabp.spi.service.WorkflowTask;
 class WorkflowTaskScanner {
 
   private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(WorkflowTaskScanner.class);
+
+  /**
+   * A workflow task is the handler with the widest binding surface: everything the core
+   * knows how to bind may stand in its parameter list, plus the two parameters only a
+   * task has.
+   */
+  private static final Set<CoreHandlerParameter> CORE_PARAMETERS = Set
+      .of(
+          CoreHandlerParameter.WORKFLOW_AGGREGATE,
+          CoreHandlerParameter.TASK_PARAM,
+          CoreHandlerParameter.MULTI_INSTANCE);
 
   private WorkflowTaskScanner() {
   }
@@ -163,7 +167,7 @@ class WorkflowTaskScanner {
       final Class<?> workflowServiceClass,
       final Method method,
       final Supplier<Object> workflowServiceBean,
-      final List<ParameterBinder> binders,
+      final List<HandlerValueSource> binders,
       final WorkflowTask annotation,
       final boolean asynchronousTask,
       final java.util.Set<TaskEvent.Event> subscribedEvents,
@@ -201,13 +205,13 @@ class WorkflowTaskScanner {
 
   }
 
-  private static List<ParameterBinder> buildParameterBinders(
+  private static List<HandlerValueSource> buildParameterBinders(
       final Class<?> workflowServiceClass,
       final Method method,
       final Class<?> workflowAggregateClass,
       final Function<Class<?>, Object> beanResolver) {
 
-    final var binders = new LinkedList<ParameterBinder>();
+    final var binders = new LinkedList<HandlerValueSource>();
     for (final var parameter : method.getParameters()) {
       binders.add(buildParameterBinder(
           workflowServiceClass,
@@ -220,7 +224,7 @@ class WorkflowTaskScanner {
 
   }
 
-  private static ParameterBinder buildParameterBinder(
+  private static HandlerValueSource buildParameterBinder(
       final Class<?> workflowServiceClass,
       final Method method,
       final Parameter parameter,
@@ -230,6 +234,8 @@ class WorkflowTaskScanner {
     final var location = "parameter '%s' of @WorkflowTask method '%s#%s'"
         .formatted(parameter.getName(), workflowServiceClass.getName(), method.getName());
 
+    // the two parameters only a task has - the rest is what every kind of handler
+    // method may take, and comes from the binders all three scanners share
     if (parameter.isAnnotationPresent(TaskId.class)) {
       if (!parameter.getType().equals(String.class)) {
         throw new IllegalStateException(
@@ -238,9 +244,9 @@ class WorkflowTaskScanner {
                 passed as a String - change the parameter's type."""
                 .formatted(location));
       }
-      return (
-          aggregate,
-          context) -> context.getTaskId();
+      return context -> context
+          .payload(TaskInvocationContext.class)
+          .getTaskId();
     }
 
     if (parameter.isAnnotationPresent(TaskEvent.class)) {
@@ -251,54 +257,19 @@ class WorkflowTaskScanner {
                 the parameter's type."""
                 .formatted(location));
       }
-      return (
-          aggregate,
-          context) -> context.getTaskEvent();
+      return context -> context
+          .payload(TaskInvocationContext.class)
+          .getTaskEvent();
     }
 
-    final var taskParam = parameter.getAnnotation(TaskParam.class);
-    if (taskParam != null) {
-      final var targetType = parameter.getType();
-      return (
-          aggregate,
-          context) -> ValueConversion.convert(
-              context.getTaskParameter(taskParam.value()),
-              targetType,
-              "@TaskParam(\"%s\") %s".formatted(taskParam.value(), location));
-    }
-
-    final var multiInstanceIndex = parameter.getAnnotation(MultiInstanceIndex.class);
-    if (multiInstanceIndex != null) {
-      requireIntParameter(parameter, location, "@MultiInstanceIndex");
-      return (
-          aggregate,
-          context) -> requireMultiInstance(
-              context,
-              multiInstanceIndex.value(),
-              location).index();
-    }
-
-    final var multiInstanceTotal = parameter.getAnnotation(MultiInstanceTotal.class);
-    if (multiInstanceTotal != null) {
-      requireIntParameter(parameter, location, "@MultiInstanceTotal");
-      return (
-          aggregate,
-          context) -> requireMultiInstance(
-              context,
-              multiInstanceTotal.value(),
-              location).total();
-    }
-
-    final var multiInstanceElement = parameter.getAnnotation(MultiInstanceElement.class);
-    if (multiInstanceElement != null) {
-      return buildMultiInstanceElementBinder(multiInstanceElement, location, beanResolver);
-    }
-
-    // unannotated: the workflow aggregate
-    if (parameter.getType().isAssignableFrom(workflowAggregateClass)) {
-      return (
-          aggregate,
-          context) -> aggregate;
+    final var binder = CoreParameterBinders.bind(
+        parameter,
+        workflowAggregateClass,
+        CORE_PARAMETERS,
+        beanResolver,
+        location);
+    if (binder != null) {
+      return binder;
     }
     throw new IllegalStateException(
         """
@@ -306,115 +277,6 @@ class WorkflowTaskScanner {
             @MultiInstanceTotal, @MultiInstanceElement) nor of the workflow-aggregate type '%s'! \
             Annotate the parameter or change its type to the workflow aggregate."""
             .formatted(location, workflowAggregateClass.getName()));
-
-  }
-
-  private static ParameterBinder buildMultiInstanceElementBinder(
-      final MultiInstanceElement annotation,
-      final String location,
-      final Function<Class<?>, Object> beanResolver) {
-
-    final var resolverClass = annotation.resolverBean();
-    final var hasResolver = !resolverClass.equals(NoResolver.class);
-    final var hasName = !annotation.value().equals(MultiInstanceElement.USE_RESOLVER);
-    if (hasResolver == hasName) {
-      throw new IllegalStateException(
-          """
-              The %s has to set EITHER @MultiInstanceElement's value (the name of the \
-              multi-instance element) OR its resolverBean!"""
-              .formatted(location));
-    }
-    if (hasName) {
-      return (
-          aggregate,
-          context) -> requireMultiInstance(
-              context,
-              annotation.value(),
-              location).element();
-    }
-    return (
-        aggregate,
-        context) -> {
-      @SuppressWarnings("unchecked")
-      final var resolver = (MultiInstanceElementResolver<Object, Object>) beanResolver.apply(resolverClass);
-      if (resolver == null) {
-        throw new IllegalStateException(
-            """
-                No bean of the resolver class '%s' (used by the %s) is available! Define it as a \
-                bean of your application. If it IS one: on Quarkus the class has to be visible to \
-                the build, which keeps resolver beans alive although nothing injects them - a \
-                workflow module in its own Maven module needs a Jandex index for that (see the \
-                jandex-maven-plugin)."""
-                .formatted(resolverClass.getName(), location));
-      }
-      return resolver.resolve(aggregate, adaptMultiInstances(context.getMultiInstances()));
-    };
-
-  }
-
-  /**
-   * Adapts the neutral adapter-supplied multi-instance values to the SPI's
-   * {@link MultiInstanceElementResolver.MultiInstance} view, preserving the
-   * outermost-first order.
-   */
-  private static Map<String, MultiInstanceElementResolver.MultiInstance<Object>> adaptMultiInstances(
-      final Map<String, MultiInstanceValue> multiInstances) {
-
-    final var adapted = new LinkedHashMap<String, MultiInstanceElementResolver.MultiInstance<Object>>();
-    multiInstances.forEach((
-        name,
-        value) -> adapted.put(name, new MultiInstanceElementResolver.MultiInstance<>() {
-
-          @Override
-          public Object getElement() {
-            return value.element();
-          }
-
-          @Override
-          public int getIndex() {
-            return value.index();
-          }
-
-          @Override
-          public int getTotal() {
-            return value.total();
-          }
-
-        }));
-    return adapted;
-
-  }
-
-  private static MultiInstanceValue requireMultiInstance(
-      final TaskInvocationContext context,
-      final String name,
-      final String location) {
-
-    final var multiInstance = context.getMultiInstances().get(name);
-    if (multiInstance == null) {
-      throw new IllegalStateException(
-          """
-              No multi-instance context named '%s' was supplied by the BPMS adapter for the %s! \
-              Supplied multi-instance contexts: %s. Check the name against the BPMN's \
-              multi-instance element."""
-              .formatted(name, location, context.getMultiInstances().keySet()));
-    }
-    return multiInstance;
-
-  }
-
-  private static void requireIntParameter(
-      final Parameter parameter,
-      final String location,
-      final String annotationName) {
-
-    if (!parameter.getType().equals(int.class) && !parameter.getType().equals(Integer.class)) {
-      throw new IllegalStateException(
-          """
-              The %s is annotated with %s but is not of type int/Integer! Change the parameter's \
-              type."""
-              .formatted(location, annotationName));
-    }
 
   }
 

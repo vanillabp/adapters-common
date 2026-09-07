@@ -5,9 +5,11 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Supplier;
 
+import io.vanillabp.integration.adapter.migration.handler.HandlerContexts;
 import io.vanillabp.integration.adapter.migration.workflowtask.InheritedVersions;
 import io.vanillabp.integration.adapter.migration.workflowtask.VersionRange;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedContext;
+import io.vanillabp.integration.extension.spi.handler.HandlerValueSource;
 
 /**
  * One <code>&#64;WorkflowEnded</code> method of a workflow service class, with its
@@ -17,26 +19,13 @@ import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedContext;
 @SuppressWarnings("LombokGetterMayBeUsed")
 public class WorkflowEndedHandler {
 
-  /**
-   * Binds one parameter of the method from the workflow aggregate and the adapter's
-   * notification.
-   */
-  @FunctionalInterface
-  interface ParameterBinder {
-
-    Object bind(
-        Object workflowAggregate,
-        WorkflowEndedContext context);
-
-  }
-
   private final Class<?> workflowServiceClass;
 
   private final Method method;
 
   private final Supplier<Object> workflowServiceBean;
 
-  private final List<ParameterBinder> binders;
+  private final List<HandlerValueSource> binders;
 
   /**
    * The BPMN id of the end event this method serves, or <code>null</code> for every
@@ -58,7 +47,7 @@ public class WorkflowEndedHandler {
       final Class<?> workflowServiceClass,
       final Method method,
       final Supplier<Object> workflowServiceBean,
-      final List<ParameterBinder> binders,
+      final List<HandlerValueSource> binders,
       final String endEventId,
       final InheritedVersions.EffectiveVersions versions) {
 
@@ -223,9 +212,10 @@ public class WorkflowEndedHandler {
       final Object workflowAggregate,
       final WorkflowEndedContext context) {
 
+    final var handlerContext = HandlerContexts.of(workflowAggregate, context, java.util.Map.of());
     final var arguments = binders
         .stream()
-        .map(binder -> binder.bind(workflowAggregate, context))
+        .map(binder -> binder.valueFor(handlerContext))
         .toArray();
     try {
       method.invoke(workflowServiceBean.get(), arguments);

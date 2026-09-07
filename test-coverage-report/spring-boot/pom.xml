@@ -86,6 +86,11 @@
       <artifactId>transaction-annotation-integration-test</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>io.vanillabp.springboot</groupId>
+      <artifactId>extension-integration-test</artifactId>
+      <version>${project.version}</version>
+    </dependency>
   </dependencies>
 
   <build>

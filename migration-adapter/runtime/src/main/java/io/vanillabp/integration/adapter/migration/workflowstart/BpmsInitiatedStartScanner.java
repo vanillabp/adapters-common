@@ -7,12 +7,13 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Supplier;
 
-import io.vanillabp.integration.adapter.migration.values.ValueConversion;
-import io.vanillabp.integration.adapter.migration.workflowstart.BpmsInitiatedStartHandler.ParameterBinder;
+import io.vanillabp.integration.adapter.migration.handler.CoreParameterBinders;
 import io.vanillabp.integration.adapter.migration.workflowtask.InheritedVersions;
 import io.vanillabp.integration.adapter.migration.workflowtask.VersionRange;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartContext;
+import io.vanillabp.integration.extension.spi.handler.CoreHandlerParameter;
+import io.vanillabp.integration.extension.spi.handler.HandlerValueSource;
 import io.vanillabp.spi.service.BpmsStartTrigger;
-import io.vanillabp.spi.service.TaskParam;
 import io.vanillabp.spi.service.WorkflowStartedByBpms;
 
 /**
@@ -28,6 +29,20 @@ import io.vanillabp.spi.service.WorkflowStartedByBpms;
  * <code>&#64;TaskParam</code>.
  */
 public final class BpmsInitiatedStartScanner {
+
+  /**
+   * A workflow the BPMS started has no task around it, so no multi-instance scope
+   * either - what such a method may take is the aggregate and the process variables the
+   * model set.
+   */
+  private static final java.util.Set<CoreHandlerParameter> CORE_PARAMETERS = java.util.Set
+      .of(CoreHandlerParameter.WORKFLOW_AGGREGATE, CoreHandlerParameter.TASK_PARAM);
+
+  /**
+   * No parameter of such a method resolves a bean - the only kind which would is
+   * <code>&#64;MultiInstanceElement</code>, which this handler does not allow.
+   */
+  private static final java.util.function.Function<Class<?>, Object> NO_BEAN_RESOLVER = beanClass -> null;
 
   private BpmsInitiatedStartScanner() {
   }
@@ -137,34 +152,25 @@ public final class BpmsInitiatedStartScanner {
 
   }
 
-  private static ParameterBinder buildParameterBinder(
+  private static HandlerValueSource buildParameterBinder(
       final Parameter parameter,
       final Class<?> workflowAggregateClass,
       final String location) {
 
+    // the one value only this kind of handler has; the rest comes from the binders all
+    // three scanners share
     if (parameter.getType().equals(BpmsStartTrigger.class)) {
-      return (
-          aggregate,
-          context) -> new BpmsStartTrigger(
-              context.getKind(), context.getStartInstant(), context.getSignalName(), context.getStartEventId());
+      return context -> {
+        final var start = context.payload(BpmsInitiatedStartContext.class);
+        return new BpmsStartTrigger(
+            start.getKind(), start.getStartInstant(), start.getSignalName(), start.getStartEventId());
+      };
     }
 
-    final var taskParam = parameter.getAnnotation(TaskParam.class);
-    if (taskParam != null) {
-      final var targetType = parameter.getType();
-      return (
-          aggregate,
-          context) -> ValueConversion
-              .convert(
-                  context.getVariables().get(taskParam.value()),
-                  targetType,
-                  "@TaskParam(\"%s\") %s".formatted(taskParam.value(), location));
-    }
-
-    if (parameter.getType().isAssignableFrom(workflowAggregateClass)) {
-      return (
-          aggregate,
-          context) -> aggregate;
+    final var binder = CoreParameterBinders
+        .bind(parameter, workflowAggregateClass, CORE_PARAMETERS, NO_BEAN_RESOLVER, location);
+    if (binder != null) {
+      return binder;
     }
 
     throw new IllegalStateException(

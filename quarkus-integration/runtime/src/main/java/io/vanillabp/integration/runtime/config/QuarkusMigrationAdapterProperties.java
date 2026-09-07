@@ -73,6 +73,16 @@ public interface QuarkusMigrationAdapterProperties {
   Map<String, WorkflowModuleProperties> workflowModules();
 
   /**
+   * The settings of the extensions of this application, keyed by extension id. What the
+   * keys below an extension mean is that extension's own business - VanillaBP owns the
+   * location and the resolution against the per-workflow-module overrides
+   * ({@link WorkflowModuleProperties#extensions()}).
+   *
+   * @return The settings per extension
+   */
+  Map<String, Map<String, String>> extensions();
+
+  /**
    * The configuration of the phase-two outbox used for two-phase workflow starts
    * (see {@link io.vanillabp.integration.spi.PhaseTwoOutbox}).
    *
@@ -521,6 +531,14 @@ public interface QuarkusMigrationAdapterProperties {
      * @return The delivery configuration of this workflow module
      */
     DeliveryProperties delivery();
+
+    /**
+     * Overrides <code>vanillabp.extensions.&lt;extension&gt;.*</code> for this workflow
+     * module, keyed by extension id.
+     *
+     * @return The extension settings of this workflow module
+     */
+    Map<String, Map<String, String>> extensions();
 
   }
 

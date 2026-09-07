@@ -5,7 +5,9 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Supplier;
 
+import io.vanillabp.integration.adapter.migration.handler.HandlerContexts;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
+import io.vanillabp.integration.extension.spi.handler.HandlerValueSource;
 import io.vanillabp.spi.service.TaskException;
 
 /**
@@ -19,24 +21,13 @@ import io.vanillabp.spi.service.TaskException;
 @SuppressWarnings("LombokGetterMayBeUsed")
 public class WorkflowTaskHandler {
 
-  /**
-   * Binds one parameter of the handler method per invocation.
-   */
-  interface ParameterBinder {
-
-    Object bind(
-        Object workflowAggregate,
-        TaskInvocationContext context);
-
-  }
-
   private final Class<?> workflowServiceClass;
 
   private final Method method;
 
   private final Supplier<Object> workflowServiceBean;
 
-  private final List<ParameterBinder> parameterBinders;
+  private final List<HandlerValueSource> parameterBinders;
 
   /**
    * The task definition this handler is wired to, or <code>null</code> if wired by
@@ -95,7 +86,7 @@ public class WorkflowTaskHandler {
       final Class<?> workflowServiceClass,
       final Method method,
       final Supplier<Object> workflowServiceBean,
-      final List<ParameterBinder> parameterBinders,
+      final List<HandlerValueSource> parameterBinders,
       final String taskDefinition,
       final String activityId,
       final InheritedVersions.EffectiveVersions versions,
@@ -311,9 +302,15 @@ public class WorkflowTaskHandler {
       final Object workflowAggregate,
       final TaskInvocationContext context) {
 
+    final var handlerContext = HandlerContexts
+        .of(
+            workflowAggregate,
+            context,
+            context::getTaskParameter,
+            () -> HandlerContexts.adapt(context.getMultiInstances()));
     final var arguments = new Object[parameterBinders.size()];
     for (int i = 0; i < parameterBinders.size(); ++i) {
-      arguments[i] = parameterBinders.get(i).bind(workflowAggregate, context);
+      arguments[i] = parameterBinders.get(i).valueFor(handlerContext);
     }
     try {
       method.invoke(workflowServiceBean.get(), arguments);

@@ -7,9 +7,12 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Supplier;
 
-import io.vanillabp.integration.adapter.migration.workflowend.WorkflowEndedHandler.ParameterBinder;
+import io.vanillabp.integration.adapter.migration.handler.CoreParameterBinders;
 import io.vanillabp.integration.adapter.migration.workflowtask.InheritedVersions;
 import io.vanillabp.integration.adapter.migration.workflowtask.VersionRange;
+import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedContext;
+import io.vanillabp.integration.extension.spi.handler.CoreHandlerParameter;
+import io.vanillabp.integration.extension.spi.handler.HandlerValueSource;
 import io.vanillabp.spi.service.WorkflowEnd;
 import io.vanillabp.spi.service.WorkflowEnded;
 
@@ -24,6 +27,19 @@ import io.vanillabp.spi.service.WorkflowEnded;
  * workflow aggregate and a {@link WorkflowEnd}.
  */
 public final class WorkflowEndedScanner {
+
+  /**
+   * A workflow which ended has no task and no variables worth binding - the aggregate is
+   * all the core has left to offer.
+   */
+  private static final java.util.Set<CoreHandlerParameter> CORE_PARAMETERS = java.util.Set
+      .of(CoreHandlerParameter.WORKFLOW_AGGREGATE);
+
+  /**
+   * No parameter of such a method resolves a bean - the only kind which would is
+   * <code>&#64;MultiInstanceElement</code>, which this handler does not allow.
+   */
+  private static final java.util.function.Function<Class<?>, Object> NO_BEAN_RESOLVER = beanClass -> null;
 
   private WorkflowEndedScanner() {
   }
@@ -106,22 +122,24 @@ public final class WorkflowEndedScanner {
 
   }
 
-  private static ParameterBinder buildParameterBinder(
+  private static HandlerValueSource buildParameterBinder(
       final Parameter parameter,
       final Class<?> workflowAggregateClass,
       final String location) {
 
+    // the one value only this kind of handler has; the rest comes from the binders all
+    // handler kinds share
     if (parameter.getType().equals(WorkflowEnd.class)) {
-      return (
-          aggregate,
-          context) -> new WorkflowEnd(
-              context.getKind(), context.getEndTime(), context.getEndEventId());
+      return context -> {
+        final var end = context.payload(WorkflowEndedContext.class);
+        return new WorkflowEnd(end.getKind(), end.getEndTime(), end.getEndEventId());
+      };
     }
 
-    if (parameter.getType().isAssignableFrom(workflowAggregateClass)) {
-      return (
-          aggregate,
-          context) -> aggregate;
+    final var binder = CoreParameterBinders
+        .bind(parameter, workflowAggregateClass, CORE_PARAMETERS, NO_BEAN_RESOLVER, location);
+    if (binder != null) {
+      return binder;
     }
 
     throw new IllegalStateException(

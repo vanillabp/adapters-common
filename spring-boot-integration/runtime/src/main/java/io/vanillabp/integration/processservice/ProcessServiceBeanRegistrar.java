@@ -57,10 +57,26 @@ public class ProcessServiceBeanRegistrar implements BeanRegistrar {
    */
   private final List<Class<?>> workflowServiceClasses;
 
+  /**
+   * The service interfaces the extensions of this application offer per workflow
+   * aggregate, from their {@code AggregateServiceFactory} beans. One bean of each is
+   * registered per aggregate, next to its {@code ProcessService}.
+   */
+  private final List<Class<?>> aggregateServiceInterfaces;
+
   public ProcessServiceBeanRegistrar(
       final List<Class<?>> workflowServiceClasses) {
 
+    this(workflowServiceClasses, List.of());
+
+  }
+
+  public ProcessServiceBeanRegistrar(
+      final List<Class<?>> workflowServiceClasses,
+      final List<Class<?>> aggregateServiceInterfaces) {
+
     this.workflowServiceClasses = workflowServiceClasses;
+    this.aggregateServiceInterfaces = aggregateServiceInterfaces;
 
   }
 
@@ -102,6 +118,12 @@ public class ProcessServiceBeanRegistrar implements BeanRegistrar {
                 workflowServiceClasses,
                 serviceClasses,
                 workflowAggregateType);
+            aggregateServiceInterfaces
+                .forEach(
+                    serviceInterface -> registerAggregateServiceBean(
+                        registry,
+                        serviceInterface,
+                        workflowAggregateType));
           } catch (Exception e) {
             throw new IllegalStateException(
                 "Could not register the ProcessService of workflow aggregate '%s' declared by %s"
@@ -465,6 +487,76 @@ public class ProcessServiceBeanRegistrar implements BeanRegistrar {
               return processServiceBean;
 
             }));
+
+  }
+
+  /**
+   * Registers the per-aggregate bean of one service an extension offers - the same shape
+   * the {@code ProcessService} of that aggregate has, so an injection point naming
+   * {@code TheService<TheAggregate>} resolves.
+   * <p>
+   * The bean is LAZY, which is what makes injecting it optional: an application which
+   * never asks for the service never has the extension's factory called. The factory
+   * itself is resolved when the bean is built rather than at definition time, because
+   * that is what keeps its own dependencies out of the bean-factory post-processing
+   * phase.
+   */
+  @SuppressWarnings({
+      "unchecked", "rawtypes"
+  })
+  private <S> void registerAggregateServiceBean(
+      final BeanRegistry registry,
+      final Class<S> serviceInterface,
+      final Class<?> workflowAggregateType) {
+
+    final var beanType = ParameterizedTypeReference
+        .<S>forType(ResolvableType
+            .forClassWithGenerics(serviceInterface, workflowAggregateType)
+            .getType());
+
+    registry
+        .registerBean(
+            "VanillaBP_ExtensionService_%s_%s".formatted(serviceInterface.getName(), workflowAggregateType.getName()),
+            beanType,
+            spec -> spec
+                .lazyInit()
+                .supplier(supplierContext -> {
+
+                  final var factory = supplierContext
+                      .beanProvider(io.vanillabp.integration.extension.spi.service.AggregateServiceFactory.class)
+                      .stream()
+                      .filter(candidate -> serviceInterface.equals(candidate.getServiceInterface()))
+                      .findFirst()
+                      .orElseThrow(() -> new IllegalStateException(
+                          """
+                              No AggregateServiceFactory of this application builds a '%s'! It was one \
+                              while the bean definitions were read, so the factory bean disappeared \
+                              afterwards - check the conditions on the extension's configuration."""
+                              .formatted(serviceInterface.getName())));
+
+                  final var processService = supplierContext
+                      .beanProvider(io.vanillabp.spi.process.ProcessService.class)
+                      .stream()
+                      .filter(ProcessServiceSpringBean.class::isInstance)
+                      .map(ProcessServiceSpringBean.class::cast)
+                      .filter(
+                          candidate -> workflowAggregateType
+                              .equals(candidate.getMigrationProcessService().getWorkflowAggregateClass()))
+                      .findFirst()
+                      .orElseThrow(() -> new IllegalStateException(
+                          """
+                              No ProcessService of the workflow aggregate '%s' exists, so the '%s' of \
+                              extension cannot be built either!"""
+                              .formatted(workflowAggregateType.getName(), serviceInterface.getName())));
+
+                  final var context = new io.vanillabp.integration.adapter.migration.processservice.ExtensionAggregateServiceContext(
+                      processService.getMigrationProcessService(), supplierContext
+                          .bean(io.vanillabp.integration.extension.spi.handler.ExtensionHandlers.class), supplierContext
+                              .bean(io.vanillabp.integration.extension.spi.election.WorkflowElection.class));
+
+                  return serviceInterface.cast(factory.createService(context));
+
+                }));
 
   }
 
