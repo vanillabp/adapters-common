@@ -180,6 +180,29 @@ public class RenamedBpmnProcessTest {
   }
 
   /**
+   * A rename whose kept method is wired to a BPMN ELEMENT rather than to a task
+   * definition. There is no model of the old id to read that element's task definition
+   * off, so nothing an adapter could subscribe to comes out of this declaration.
+   */
+  @WorkflowService(
+      workflowAggregateClass = Aggregate.class,
+      bpmnProcess = @BpmnProcess(bpmnProcessId = NEW_ID),
+      secondaryBpmnProcesses = @BpmnProcess(bpmnProcessId = OLD_ID, version = "1-3"))
+  public static class ServiceWiredToAnElementOfTheOldModel {
+
+    @WorkflowTask(taskDefinition = "approve")
+    public void approve(
+        final Aggregate aggregate) {
+    }
+
+    @WorkflowTask(id = "Activity_approve")
+    public void approveByElement(
+        final Aggregate aggregate) {
+    }
+
+  }
+
+  /**
    * What a BPMS holds per BPMN process id, with every answer handed in by the test.
    */
   private static class CatalogStub implements ProcessVersionCatalog {
@@ -572,6 +595,66 @@ public class RenamedBpmnProcessTest {
         exception.getMessage().contains("checkCredit"),
         () -> "the method kept for the versions of the old id runs: "
             + exception.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("What the methods serve for the old id is named, so an adapter can compose its own names")
+  public void whatIsServedForTheOldIdIsNamed() {
+
+    theApplicationDeclares(ServiceKeepingTheOldGeneration.class);
+    theAdapterDeployed(NEW_ID, "1");
+
+    assertEquals(
+        Map.of(OLD_ID, List.of("approve", "checkCredit")),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE),
+        "what the application serves for the old id is what an adapter needs to reach those workflows");
+
+  }
+
+  @Test
+  @DisplayName("A method wired to a BPMN element contributes nothing an adapter could compose from")
+  public void aMethodWiredToAnElementNamesNoTaskDefinition() {
+
+    theApplicationDeclares(ServiceWiredToAnElementOfTheOldModel.class);
+    theAdapterDeployed(NEW_ID, "1");
+
+    assertEquals(
+        Map.of(OLD_ID, List.of("approve")),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE),
+        "the method wired to an element contributes nothing an adapter could subscribe to");
+
+  }
+
+  @Test
+  @DisplayName("Only an id nothing was deployed under is named, and a module without a rename names nothing")
+  public void onlyAnIdNobodyDeployedIsNamed() {
+
+    theApplicationDeclares(ServiceWithACalledProcess.class);
+    theAdapterDeployed(NEW_ID, "1");
+    theAdapterDeployed(CALLED_ID, "1", new BpmnTaskSpec("Activity_ship", "ship"));
+
+    assertEquals(
+        java.util.Set.of(OLD_ID),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE).keySet(),
+        "the called process was deployed, so it is not what a rename left behind");
+    assertEquals(
+        Map.of(),
+        registry.taskWiringOfProcessesNobodyDeployed("another-module"),
+        "a workflow module without a declared-only id names nothing");
+
+  }
+
+  @Test
+  @DisplayName("A workflow service waiting for its model names nothing either")
+  public void aWorkflowServiceWaitingForItsModelNamesNothing() {
+
+    theApplicationDeclares(RenamedService.class);
+
+    assertEquals(
+        Map.of(),
+        registry.taskWiringOfProcessesNobodyDeployed(MODULE),
+        "the same answer the version question gives: nothing here says a process was renamed");
 
   }
 

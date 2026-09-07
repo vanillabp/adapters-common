@@ -2353,7 +2353,7 @@ since Camunda 7 delivers its task events inside the engine's own transaction.
 
 **Registration order does not matter.** Whether the extension's bean or the scan of the
 workflow services comes first depends on what else the application does, so a contract
-registered later is applied to the classes registered so far (decision 35 in the
+registered later is applied to the classes registered so far (decision 36 in the
 repository's `DECISIONS.md`).
 
 Behind it, `CoreParameterBinders` is the one place the workflow aggregate, `@TaskParam` and
@@ -2526,6 +2526,19 @@ Three consequences run through the check from there:
 - the reverse wiring check exempts a method registered for a declared-only id the same way it
   exempts one serving only older versions: no model of this boot carries the task it is wired to.
   This is why the core asks the adapters BEFORE `validateNoUnwiredWorkflowTaskMethods`.
+
+The check is one half of what such an id needs; the other is that its workflows keep being served,
+and that half belongs to the adapters. `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed`
+is where they read the declared ids together with what the application serves for each of them,
+which the registry answers from the same entries the version question uses
+(`entriesNobodyDeployed`), so both speak about exactly the same ids. Why that method is named
+after the question and not after today's answer, which is the `taskDefinition` of a method, is
+decision 34 of `DECISIONS.md`. What an adapter does with them
+is its own decision, because the need differs per BPMS: an identifier which does not carry the
+process id reaches the old id by itself, while a Camunda 8 job type under `use-prefix` does carry it
+and the jobs of those workflows then wait for a worker nobody opened. A method wired to a BPMN
+element id contributes nothing there, since reading an element's task definition needs the model
+which is exactly what is missing, so an id can be named with an empty answer.
 
 Watch the numbering when you configure anything for such an id: each BPMN process id is counted
 from 1 by its BPMS, so the versions of the old id and of the new one are different things with the
