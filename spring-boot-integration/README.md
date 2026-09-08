@@ -152,6 +152,15 @@ built, primary and secondary alike; `PhaseTwoRouter` gets them from the auto-con
 A setter rather than another constructor parameter: the metrics exist once per application
 while process services exist per BPMN process, and that constructor is long enough.
 
+The same registrar hands the bean the process services of every id its workflow service classes
+declare (`ProcessServiceSpringBean#getProcessServicesOfDeclaredIds`), and that list is what the
+startup validations walk - `vanillaBpProcessServiceStartupValidation` in the auto-configuration
+and the election check of `SpringBootDeploymentService`. One `ProcessService` bean per aggregate is
+the injection contract of the SPI, but everything configurable per workflow is configurable per
+declared id, so validating the primary one alone left a secondary or declared-only id unchecked -
+which is exactly the id a rename leaves the running workflows under. The Quarkus integration does
+the same from `ProcessServiceBaseCdiBean`.
+
 ## Noteworthy & Contributors
 
 [VanillaBP](https://www.github.com/vanillabp/spi-for-java) was developed by [Phactum](https://www.phactum.at) with the

@@ -2541,6 +2541,15 @@ boot, because what was read are models nobody can change any more (decision 38 o
 and where one version cannot be read the check says nothing about that BPMS at all - the start
 event might be sitting in exactly that model. `StartEventsOfARenamedProcessTest` holds it.
 
+What a declared-only id also gets is the startup validations of the process service. Everything
+configurable per workflow is configurable for it - its prioritized adapters, its outbox, its
+transaction runner, what its leftovers were persisted under - and each of those questions has its
+own answer per BPMN process id. So both platforms build one `MigrationProcessService` per DECLARED
+id and run the validations over all of them, once per id, so a message names the id it is about.
+For a rename that is the whole point: the persisted adapter id of an aggregate whose adapter the
+configuration dropped sits under the OLD id, and asking only the primary one would find it at the
+first operation instead of at boot. `SecondaryProcessValidationTest` holds it, once per platform.
+
 The check is one half of what such an id needs; the other is that its workflows keep being served,
 and that half belongs to the adapters. `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed`
 is where they read the declared ids together with what the application serves for each of them,

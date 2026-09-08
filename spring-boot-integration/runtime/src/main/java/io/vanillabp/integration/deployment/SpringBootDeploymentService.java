@@ -140,9 +140,11 @@ public class SpringBootDeploymentService implements SmartLifecycle {
         .stream()
         .filter(ProcessServiceSpringBean.class::isInstance)
         .map(processService -> (ProcessServiceSpringBean<?>) processService)
-        .forEach(processService -> processService
-            .getMigrationProcessService()
-            .validateElectionCapabilityAfterDeployment());
+        // per DECLARED BPMN process id: which adapters serve a workflow is configurable per
+        // workflow, so a secondary or declared-only id may be the one whose combination
+        // cannot locate its workflows
+        .flatMap(processService -> processService.getProcessServicesOfDeclaredIds().stream())
+        .forEach(processService -> processService.validateElectionCapabilityAfterDeployment());
 
     deploymentService.startWorkflowProcessing(
         getWorkflowModuleIds());

@@ -1,0 +1,17 @@
+quarkus:
+  datasource:
+    db-kind: h2
+    jdbc:
+      url: jdbc:h2:mem:secondary-process;DB_CLOSE_DELAY=-1
+vanillabp:
+  outbox:
+    jdbc:
+      enabled: false
+  adapters:
+    demo:
+      type: dummy
+  workflow-modules:
+    test-module:
+      adapters:
+        demo:
+          resources-location: classpath:processes/dummy

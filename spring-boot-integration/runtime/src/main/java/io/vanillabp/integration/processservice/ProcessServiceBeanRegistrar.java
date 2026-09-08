@@ -1,7 +1,6 @@
 package io.vanillabp.integration.processservice;
 
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -422,7 +421,10 @@ public class ProcessServiceBeanRegistrar implements BeanRegistrar {
                   .filter(type::isInstance)
                   .findFirst()
                   .orElse(null);
-              final var processServicesByKey = new HashMap<String, MigrationProcessService<A>>();
+              // insertion ordered, and the primary service goes in first: the startup
+              // validations run over this list and a message about the primary id is the one
+              // a reader expects to meet first
+              final var processServicesByKey = new LinkedHashMap<String, MigrationProcessService<A>>();
               processServicesByKey.put(
                   "%s|%s".formatted(workflowModuleId, bpmnProcessId),
                   processServiceBean.getMigrationProcessService());
@@ -475,6 +477,11 @@ public class ProcessServiceBeanRegistrar implements BeanRegistrar {
                       processService);
                 }
               }
+
+              // everything configurable per workflow is configurable for a secondary or
+              // declared-only id as well, so the startup validations get every declared id
+              // rather than the primary one alone
+              processServiceBean.setProcessServicesOfDeclaredIds(processServicesByKey.values());
 
               // every process service of this aggregate answers for the processes of ITS
               // workflow module
