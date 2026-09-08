@@ -694,30 +694,24 @@ public class SpringBootMigrationAdapterAutoConfiguration {
         .getBeanProvider(io.vanillabp.spi.process.ProcessService.class)
         .stream()
         .filter(ProcessServiceSpringBean.class::isInstance)
-        .map(ProcessServiceSpringBean.class::cast)
+        .map(processServiceBean -> (ProcessServiceSpringBean<?>) processServiceBean)
+        // once per DECLARED BPMN process id, not once per bean: a secondary or
+        // declared-only id has prioritized adapters, an outbox and persisted leftovers of
+        // its own, and a message which names the id it is about is the point of asking
+        .flatMap(processService -> processService.getProcessServicesOfDeclaredIds().stream())
         .forEach(processService -> {
           // first of all: an adapter which cannot serve an operation every adapter has
           // to serve is a gap nothing later would report except a workflow standing
           // still
-          processService
-              .getMigrationProcessService()
-              .validateAdapterOperationsAtStartup();
-          processService
-              .getMigrationProcessService()
-              .validatePhaseTwoOutboxAtStartup();
+          processService.validateAdapterOperationsAtStartup();
+          processService.validatePhaseTwoOutboxAtStartup();
           // after the outbox: an application without a store hears about the store
           // first, which is the more specific gap
-          processService
-              .getMigrationProcessService()
-              .validateTransactionRunnerAtStartup();
-          processService
-              .getMigrationProcessService()
-              .validateTaskDeliveryLogAtStartup();
+          processService.validateTransactionRunnerAtStartup();
+          processService.validateTaskDeliveryLogAtStartup();
           // last: it asks the stores the two checks above resolved, so an application
           // which needs neither is not made to materialize one for a question about it
-          processService
-              .getMigrationProcessService()
-              .validatePersistedAdapterIdsAtStartup();
+          processService.validatePersistedAdapterIdsAtStartup();
         });
 
   }

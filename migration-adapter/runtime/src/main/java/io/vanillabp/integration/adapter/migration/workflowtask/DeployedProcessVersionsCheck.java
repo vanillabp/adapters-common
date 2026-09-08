@@ -40,7 +40,9 @@ import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
  * <h2>What one run of it costs</h2>
  *
  * One question for the versions the BPMS holds, and then two per version OLDER than the one this
- * boot deployed: the model of that version, and how many workflows still run on it. So the cost
+ * boot deployed: the model of that version, and how many workflows still run on it. A third is
+ * asked only where workflows do run on such a version - which of its elements can put a second
+ * token into one of them - so a version nobody is on costs nothing extra. The cost therefore
  * follows the number of versions, which grows when somebody deploys a changed model and which
  * <code>outfaded-versions</code> is the operator's way to bound. It does not follow the number of
  * workflows, and it must not start to - decision 19.
@@ -86,6 +88,22 @@ public class DeployedProcessVersionsCheck {
   }
 
   /**
+   * The elements of the versions a BPMS still holds which can put a second token into a
+   * running workflow - handed to the {@link WorkflowTaskRegistry}, which is the only place
+   * knowing the workflow aggregate of a BPMN process and therefore the only one which can
+   * decide what the finding means.
+   */
+  @FunctionalInterface
+  public interface ConcurrentTokenElementsOfHeldVersions {
+
+    void report(
+        String workflowModuleId,
+        String bpmnProcessId,
+        java.util.Map<String, Collection<String>> elementIdsByVersion);
+
+  }
+
+  /**
    * What the check reads from an adapter's catalog - narrowed to its two questions so a
    * test double does not have to be a whole catalog.
    */
@@ -113,6 +131,15 @@ public class DeployedProcessVersionsCheck {
 
     }
 
+    default Collection<String> concurrentTokenElementsOfVersion(
+        final String workflowModuleId,
+        final String bpmnProcessId,
+        final String version) {
+
+      return null;
+
+    }
+
   }
 
   private final ProcessVersions processVersions;
@@ -128,6 +155,11 @@ public class DeployedProcessVersionsCheck {
    * "older version" depends on it.
    */
   private final DeclaredBpmnProcesses declaredProcesses;
+
+  /**
+   * Where the elements of a held version which can produce a second token are judged.
+   */
+  private final ConcurrentTokenElementsOfHeldVersions concurrentTokenElements;
 
   /**
    * The adapters already reported as unable to answer, so a BPMS which cannot read old
@@ -167,11 +199,24 @@ public class DeployedProcessVersionsCheck {
       final DeadHandlers deadHandlers,
       final DeclaredBpmnProcesses declaredProcesses) {
 
+    this(processVersions, outfadedVersions, unservedTasks, deadHandlers, declaredProcesses, null);
+
+  }
+
+  public DeployedProcessVersionsCheck(
+      final ProcessVersions processVersions,
+      final OutfadedProcessVersions outfadedVersions,
+      final UnservedTasks unservedTasks,
+      final DeadHandlers deadHandlers,
+      final DeclaredBpmnProcesses declaredProcesses,
+      final ConcurrentTokenElementsOfHeldVersions concurrentTokenElements) {
+
     this.processVersions = processVersions;
     this.outfadedVersions = outfadedVersions;
     this.unservedTasks = unservedTasks;
     this.deadHandlers = deadHandlers;
     this.declaredProcesses = declaredProcesses;
+    this.concurrentTokenElements = concurrentTokenElements;
 
   }
 
@@ -249,15 +294,18 @@ public class DeployedProcessVersionsCheck {
         : olderThan(known, deployed);
     reportWorkflowsOnOlderVersions(
         workflowModuleId, bpmnProcessId, adapterId, olderVersions, instanceCounts, catalog, everyHeldVersionIsOlder);
+    final var concurrentTokensPerVersion = new java.util.LinkedHashMap<String, Collection<String>>();
     for (final var version : olderVersions) {
       if (outfadedVersions.isOutfaded(workflowModuleId, bpmnProcessId, adapterId, version, resolver)) {
         reportOutfadedVersionInUse(workflowModuleId, bpmnProcessId, adapterId, version, instanceCounts);
         continue;
       }
+      rememberConcurrentTokenElements(
+          workflowModuleId, bpmnProcessId, version, instanceCounts, catalog, concurrentTokensPerVersion);
       final var tasks = catalog.tasksOfVersion(workflowModuleId, bpmnProcessId, version);
       if (tasks == null) {
         reportUnableToReadModels(workflowModuleId, bpmnProcessId, adapterId);
-        return;
+        break;
       }
       final var unserved = unservedTasks.of(workflowModuleId, bpmnProcessId, version, tasks);
       if ((unserved == null) || unserved.isEmpty()) {
@@ -265,6 +313,49 @@ public class DeployedProcessVersionsCheck {
       }
       reportUnservedTasks(workflowModuleId, bpmnProcessId, adapterId, version, unserved, instanceCounts);
     }
+    if (concurrentTokenElements != null) {
+      concurrentTokenElements.report(workflowModuleId, bpmnProcessId, concurrentTokensPerVersion);
+    }
+
+  }
+
+  /**
+   * Reads the elements of ONE held version which can put a second token into a running
+   * workflow, and remembers them for the one report the whole BPMN process gets.
+   * <p>
+   * Only asked where workflows really run on that version: a version nobody is on can lose
+   * nobody's update, and the count is the number the reports around this one already have.
+   * A BPMS which cannot say how many workflows run on a version is asked anyway - "cannot
+   * tell" is not "nobody", and losing an update silently is the one outcome worth a model
+   * read.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The plain BPMN process ID
+   * @param version The version identifier the BPMS reported
+   * @param instanceCounts How many workflows run on a version, asked once per version
+   * @param catalog What that BPMS can tell about the process
+   * @param concurrentTokensPerVersion What was found so far, per version
+   */
+  private void rememberConcurrentTokenElements(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version,
+      final InstanceCounts instanceCounts,
+      final ProcessVersionCatalogAccess catalog,
+      final java.util.Map<String, Collection<String>> concurrentTokensPerVersion) {
+
+    if (concurrentTokenElements == null) {
+      return;
+    }
+    final var running = instanceCounts.of(version);
+    if ((running != null) && (running == 0)) {
+      return;
+    }
+    final var elements = catalog.concurrentTokenElementsOfVersion(workflowModuleId, bpmnProcessId, version);
+    if ((elements == null) || elements.isEmpty()) {
+      return;
+    }
+    concurrentTokensPerVersion.put(version, elements);
 
   }
 
@@ -797,6 +888,16 @@ public class DeployedProcessVersionsCheck {
           final String bpmnProcessId) {
 
         return catalog.whatOlderVersionsMiss(workflowModuleId, bpmnProcessId);
+
+      }
+
+      @Override
+      public Collection<String> concurrentTokenElementsOfVersion(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String version) {
+
+        return catalog.concurrentTokenElementsOfVersion(workflowModuleId, bpmnProcessId, version);
 
       }
 

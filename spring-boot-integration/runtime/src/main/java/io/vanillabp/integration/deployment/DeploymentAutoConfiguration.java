@@ -48,7 +48,8 @@ public class DeploymentAutoConfiguration {
       final ObjectProvider<AdapterDeploymentService<?, ?>> deploymentServiceProvider,
       final ObjectProvider<ExtensionWiringService<?, ?>> wiringServiceProvider,
       final ObjectProvider<ProcessService<?>> processServices,
-      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring workflowTaskWiring) {
+      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring workflowTaskWiring,
+      final org.springframework.core.io.ResourceLoader resourceLoader) {
 
     final List<AdapterDeploymentService<?, ?>> deploymentServices = deploymentServiceProvider
         .stream()
@@ -62,8 +63,13 @@ public class DeploymentAutoConfiguration {
     // @WorkflowService class claims, the versions a BPMS still holds for a process id
     // the application only declares, the @WorkflowTask methods serving no task at all
     // and the version tags the annotations name
+    // and one contributor to the report about a process nothing claims: on Spring Boot a
+    // workflow service is found because it is a bean, so a class carrying the annotation
+    // without one is invisible to the discovery and only a scan of class resources can name
+    // it. That scan runs where such a process is being reported and nowhere else
     final var deploymentService = new DeploymentService(
-        properties, deploymentServices, wiringServices, workflowTaskWiring);
+        properties, deploymentServices, wiringServices, workflowTaskWiring, new io.vanillabp.integration.processservice.WorkflowServicesWhichAreNoBeans(
+            resourceLoader, allWorkflowModules));
 
     return new SpringBootDeploymentService(
         deploymentService, allWorkflowModules, processServices);

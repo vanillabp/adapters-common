@@ -175,6 +175,12 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
   @Getter
   MigrationProcessService<A> migrationProcessService;
 
+  /**
+   * The process services of every declared BPMN process id, the primary one first - see
+   * {@link #getProcessServicesOfDeclaredIds()}.
+   */
+  private List<MigrationProcessService<A>> processServicesOfDeclaredIds;
+
   public abstract Class<AggregatePersistenceAware<A>> getAggregatePersistenceClass();
 
   public abstract Class<A> getWorkflowAggregateClass();
@@ -282,7 +288,9 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
       return;
     }
     final var registry = workflowTaskRegistry.get();
-    final var processServicesByKey = new java.util.HashMap<String, MigrationProcessService<A>>();
+    // insertion ordered, and the primary service goes in first: the startup validations run
+    // over this list and a message about the primary id is the one a reader expects first
+    final var processServicesByKey = new java.util.LinkedHashMap<String, MigrationProcessService<A>>();
     processServicesByKey.put(
         "%s|%s".formatted(getWorkflowModuleId(), getBpmnProcessId()),
         migrationProcessService);
@@ -358,6 +366,11 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
           processService);
     }
 
+    // everything configurable per workflow is configurable for a secondary or declared-only
+    // id as well, so the startup validations get every declared id rather than the primary
+    // one alone
+    processServicesOfDeclaredIds = List.copyOf(processServicesByKey.values());
+
     // every process service of this aggregate answers for the processes of ITS workflow
     // module
     moduleOfProcessService
@@ -381,17 +394,44 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
   public void onStart(
       @Observes final StartupEvent event) {
 
-    // first of all: an adapter which cannot serve an operation every adapter has to
-    // serve is a gap nothing later would report except a workflow standing still
-    migrationProcessService.validateAdapterOperationsAtStartup();
-    migrationProcessService.validatePhaseTwoOutboxAtStartup();
-    // after the outbox: an application which configured a remote BPMS without a store
-    // hears about the store first, which is the more specific gap
-    migrationProcessService.validateTransactionRunnerAtStartup();
-    migrationProcessService.validateTaskDeliveryLogAtStartup();
-    // last: it asks the stores the two checks above resolved, so an application which
-    // needs neither is not made to materialize one for a question about it
-    migrationProcessService.validatePersistedAdapterIdsAtStartup();
+    // once per DECLARED BPMN process id, not once per bean: a secondary or declared-only id
+    // has prioritized adapters, an outbox and persisted leftovers of its own, and a message
+    // which names the id it is about is the point of asking
+    getProcessServicesOfDeclaredIds()
+        .forEach(processService -> {
+          // first of all: an adapter which cannot serve an operation every adapter has to
+          // serve is a gap nothing later would report except a workflow standing still
+          processService.validateAdapterOperationsAtStartup();
+          processService.validatePhaseTwoOutboxAtStartup();
+          // after the outbox: an application which configured a remote BPMS without a store
+          // hears about the store first, which is the more specific gap
+          processService.validateTransactionRunnerAtStartup();
+          processService.validateTaskDeliveryLogAtStartup();
+          // last: it asks the stores the two checks above resolved, so an application which
+          // needs neither is not made to materialize one for a question about it
+          processService.validatePersistedAdapterIdsAtStartup();
+        });
+
+  }
+
+  /**
+   * The process service of EVERY BPMN process id the workflow service classes of this
+   * aggregate declare, the primary one first.
+   * <p>
+   * Everything configurable per workflow is configurable for a secondary or declared-only id
+   * too (its prioritized adapters, its outbox, what its leftovers were persisted under), and
+   * each of those services asks its own questions. So the startup validations run over this
+   * list rather than over the primary service alone - the id a rename leaves behind is exactly
+   * the one whose leftovers nobody would otherwise look at.
+   *
+   * @return The process services, the primary one first; the primary one alone where no
+   *         workflow task registry was resolvable
+   */
+  public List<MigrationProcessService<A>> getProcessServicesOfDeclaredIds() {
+
+    return processServicesOfDeclaredIds != null
+        ? processServicesOfDeclaredIds
+        : List.of(migrationProcessService);
 
   }
 

@@ -241,9 +241,10 @@ public class WorkflowServiceDiscoveryTest {
     // the question
     final var writtenBeforeThisBoot = output.getAll().length();
 
-    // without the profile: the class is on the classpath but no bean of it exists.
-    // Nothing warns about the annotated class - the DEPLOYED model is what reports the
-    // gap, as the process which nothing serves
+    // without the profile: the class is on the classpath but no bean of it exists. The
+    // DEPLOYED model is what reports the gap, as the process which nothing serves - and
+    // the report names the class, because a boot which is already reporting a problem can
+    // afford to look for one
     try (var context = application(ProfiledWorkflowService.class, DummyProcessWithOneTask.class)
         .run()) {
 
@@ -256,8 +257,90 @@ public class WorkflowServiceDiscoveryTest {
           captured.contains("not get past its first task"),
           "unexpected output: "
               + captured);
+      Assertions.assertTrue(
+          captured.contains(ProfiledWorkflowService.class.getName()),
+          "the class of the inactive profile is not named: "
+              + captured);
+      // and it reads as a possibility rather than as a defect: the boot cannot tell the
+      // two apart, which is what decision 21 says in as many words
+      Assertions.assertTrue(
+          captured.contains("profile which is not active here"),
+          "the other reading is missing: "
+              + captured);
 
     }
+
+  }
+
+  @Test
+  public void aWorkflowServiceNothingMadeABeanIsNamedInTheReport(
+      final CapturedOutput output) {
+
+    final var writtenBeforeThisBoot = output.getAll().length();
+
+    // nothing here registers ForgottenWorkflowService, which is the support case: the
+    // annotation is on the class, no bean of it exists, and the application used to do
+    // nothing with it without saying a word
+    try (var context = application(DummyProcessWithOneTask.class).run()) {
+
+      final var captured = output.getAll().substring(writtenBeforeThisBoot);
+      Assertions.assertTrue(
+          captured.contains(ForgottenWorkflowService.class.getName()),
+          "the class carrying the annotation is not named: "
+              + captured);
+      Assertions.assertTrue(
+          captured.contains("is no bean of this application"),
+          "the report does not say why VanillaBP did nothing with it: "
+              + captured);
+      Assertions.assertTrue(
+          captured.contains("@Service"),
+          "the report does not name the remedy: "
+              + captured);
+      // a class of the same classpath root declaring ANOTHER process says nothing about
+      // this one
+      Assertions.assertFalse(
+          captured.contains(LibraryWorkflowService.class.getName()),
+          "a class declaring a different process was named: "
+              + captured);
+
+    }
+
+  }
+
+  @Test
+  public void aWorkflowServiceOfTheGlobalModuleIsFoundByTheFallback(
+      final CapturedOutput output) throws IOException {
+
+    final var writtenBeforeThisBoot = output.getAll().length();
+
+    // the descriptor of the workflow module sits in a root of its own, so the classes of
+    // this application belong to the GLOBAL module: a root with no marker file at all,
+    // which the module's own root can never lead to
+    try (var testApp = io.vanillabp.integration.test.utils.springboot.SpringBootTestApplication
+        .builder()
+        .addResource("META-INF/workflow-module", "test-module")
+        .addResource("test-module/processes/dummy/DummyProcess.bpmn")
+        .hideResource("META-INF/workflow-module")
+        .build(); var context = testApp
+            .applicationBuilder(applicationClasses(DummyProcessWithOneTask.class))
+            .run()) {
+
+      final var captured = output.getAll().substring(writtenBeforeThisBoot);
+      Assertions.assertTrue(
+          captured.contains(ForgottenWorkflowService.class.getName()),
+          "the class of a root without a marker file was not found: "
+              + captured);
+
+    }
+
+  }
+
+  private Class<?>[] applicationClasses(
+      final Class<?>... additionalClasses) {
+
+    final var classes = new java.util.LinkedList<>(PLATFORM);
+    classes.addAll(List.of(additionalClasses));
+    return classes.toArray(Class[]::new);
 
   }
 
@@ -346,7 +429,10 @@ public class WorkflowServiceDiscoveryTest {
     }
 
     // a whole-classpath scan asks for the roots ("") and then reads one resource per
-    // class it finds - 40 000 of them in an application of a decent size
+    // class it finds - 40 000 of them in an application of a decent size. The scan
+    // looking for a workflow service which never became a bean is part of what this
+    // holds: it runs only where a BPMN process is being reported, and nothing is
+    // reported here
     Assertions.assertEquals(
         List.of(),
         recording.getRequests().stream().filter(name -> !name.endsWith(".class")).toList(),

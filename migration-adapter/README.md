@@ -749,6 +749,19 @@ reached the task.
    name the file each BPMN process came from and that map belongs to the deployment as a
    whole.
 
+   That report is also where a platform may add a sentence of its own, through
+   `UnclaimedBpmnProcessHints` - one question, one answer, handed to `DeploymentService`
+   like `workflowTaskWiring` is. The Spring Boot integration implements it and Quarkus
+   does not, because the answer differs per platform while the report does not: on Spring
+   Boot a class carrying `@WorkflowService` which nobody made a bean of is invisible to the
+   discovery (decision 21 of `DECISIONS.md`) and only reading class resources can name it,
+   which is Spring's work and must not enter the core; on Quarkus the same case fails the
+   BUILD, because the build knows its bean set. The hint is asked ONLY where a process is
+   actually being reported, so a healthy boot pays nothing, and its lines go inside the
+   module's existing WARN block rather than into a warning of their own - one report per
+   workflow module, not two which have to be read together. An implementation which throws
+   is ignored: a report must not turn a warning into a failed boot.
+
    The three per-module calls follow, in an order which matters. Every adapter of the
    module is asked first, through
    `registerVersionsOfProcessesNobodyDeployed(module, adapter, ...)` and the adapter's
@@ -2459,12 +2472,14 @@ module was deployed, next to the version-tag resolution in
 The split follows the rule of this project: reading a model is BPMS-specific, deciding what
 it means is not.
 
-- The adapter answers two optional questions of `ProcessVersionCatalog`:
+- The adapter answers the optional questions of `ProcessVersionCatalog`:
   `tasksOfVersion` reads the model the BPMS still holds and builds the same `BpmnTaskSpec`
   list `wireBpmn` builds (both adapters extract it once and use it for both directions, so
-  the two cannot drift), and `activeInstanceCountOf` counts the workflows of that version.
-  A BPMS which cannot answer returns `null`, which switches the respective half off instead
-  of inventing an answer.
+  the two cannot drift), `activeInstanceCountOf` counts the workflows of that version, and
+  `concurrentTokenElementsOfVersion` names the elements of that model which can put a second
+  token into one of them - the same walk `reportConcurrentTokenElements` reports for the
+  model of this boot. A BPMS which cannot answer returns `null`, which switches the
+  respective half off instead of inventing an answer.
 - The adapter also reports what it deployed, through
   `WorkflowTaskInvoker#registerDeployedVersion`. That is the border between "the model this
   boot brought" and the older ones, and it is what makes fading out the deployed version a
@@ -2526,6 +2541,27 @@ Three consequences run through the check from there:
 - the reverse wiring check exempts a method registered for a declared-only id the same way it
   exempts one serving only older versions: no model of this boot carries the task it is wired to.
   This is why the core asks the adapters BEFORE `validateNoUnwiredWorkflowTaskMethods`.
+
+The exemption leaves the `@WorkflowStartedByBpms` methods of such an id judged by nothing, which
+is a hole of its own: an adapter validates those methods against the start events it read while
+wiring THIS boot's model, and there is no such model here, while the BPMS may fire the old model's
+timer every day. `ProcessVersionCatalog#startEventsOfVersion` is the question which closes it, and
+`BpmsInitiatedStarts#validateAgainstVersionsTheBpmsHolds` compares the union over every version
+the BPMS holds under the id against what the methods name. A method naming a start event no held
+version has, and a declaration whose held versions start on their own nowhere at all, are both
+said out loud. Both are warnings naming the versions they were drawn from rather than the end of a
+boot, because what was read are models nobody can change any more (decision 38 of `DECISIONS.md`),
+and where one version cannot be read the check says nothing about that BPMS at all - the start
+event might be sitting in exactly that model. `StartEventsOfARenamedProcessTest` holds it.
+
+What a declared-only id also gets is the startup validations of the process service. Everything
+configurable per workflow is configurable for it - its prioritized adapters, its outbox, its
+transaction runner, what its leftovers were persisted under - and each of those questions has its
+own answer per BPMN process id. So both platforms build one `MigrationProcessService` per DECLARED
+id and run the validations over all of them, once per id, so a message names the id it is about.
+For a rename that is the whole point: the persisted adapter id of an aggregate whose adapter the
+configuration dropped sits under the OLD id, and asking only the primary one would find it at the
+first operation instead of at boot. `SecondaryProcessValidationTest` holds it, once per platform.
 
 The check is one half of what such an id needs; the other is that its workflows keep being served,
 and that half belongs to the adapters. `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed`
@@ -2608,6 +2644,17 @@ The core answers the part it owns, and only that part:
   of the annotation so JPA and Spring Data are covered without a dependency on either, and
   warns once per BPMN process where there is none. An aggregate with a version attribute stays
   quiet, because then the collision is the exception above instead of a lost write.
+- The hint reads the versions the BPMS still HOLDS as well. An older version with a parallel
+  gateway the newest model dropped keeps forking every workflow started before it, and those
+  are the workflows which run longest, so a hint drawn from this boot's model alone misses the
+  case which lasts. `DeployedProcessVersionsCheck` asks
+  `ProcessVersionCatalog#concurrentTokenElementsOfVersion` for every older version workflows
+  still run on - a version nobody is on can lose nobody's update and is not even read - and
+  hands what it found to the same check, which names the versions carrying the elements. It
+  stays ONE warning per BPMN process: the message is about an aggregate which cannot survive
+  two writers, and saying it once per version an application ever deployed would bury it. The
+  deployed model speaks first where both would speak, because it is the one a developer can
+  still change. `ConcurrentTokensOfHeldVersionsTest` holds all of it.
 
 `AggregateWriteConflictTest` holds the classification and the report
 (`optimisticLockingIsRecognizedByName`, `conflictIsReportedAndPropagated`,

@@ -70,7 +70,14 @@ as possible at **build time**, following Quarkus' extension philosophy:
    `ProcessService_<Aggregate>` CDI bean class extending `ProcessServiceBaseCdiBean<A>`
    is generated as bytecode at build time — the Quarkus counterpart of Spring's
    `BeanDefinition` registration. The runtime base class bridges to the
-   [migration adapter](../migration-adapter)'s `MigrationProcessService`.
+   [migration adapter](../migration-adapter)'s `MigrationProcessService`, and it builds one
+   per BPMN process id its workflow service classes declare, secondary ids included
+   (`getProcessServicesOfDeclaredIds`). That list is what the startup validations of its
+   `StartupEvent` observer walk, and what the deployment runner asks the election check:
+   everything configurable per workflow is configurable per declared id, so validating the
+   primary one alone left a secondary or declared-only id unchecked - which is exactly the id
+   a rename leaves the running workflows under. The Spring Boot integration does the same
+   from `ProcessServiceSpringBean`.
 3. **Workflow module detection:** `WorkflowModuleBuildStepProcessor` scans all
    application archives for `META-INF/workflow-module` marker files (content = workflow
    module ID); the root archive acts as the *global* module fallback.

@@ -44,13 +44,17 @@ public class DeploymentTest {
         final List<AdapterDeploymentService<?, ?>> deploymentServices,
         final List<ExtensionWiringService<?, ?>> wiringServices,
         final ObjectProvider<ProcessService<?>> processServices,
-        final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskWiring) {
+        final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskWiring,
+        final org.springframework.core.io.ResourceLoader resourceLoader) {
 
       // the wiring interface goes in, like the platform's own auto-configuration does:
       // what belongs to a workflow module as a whole is the core's duty, and a
-      // deployment service built without the interface skips all of it
+      // deployment service built without the interface skips all of it. The report about
+      // a process nothing claims gets its Spring half the same way, so what the tests
+      // boot here reads like what an application boots
       final var deploymentService = new DeploymentService(
-          properties, deploymentServices, wiringServices, workflowTaskWiring);
+          properties, deploymentServices, wiringServices, workflowTaskWiring, new io.vanillabp.integration.processservice.WorkflowServicesWhichAreNoBeans(
+              resourceLoader, allWorkflowModules));
 
       return new SpringBootDeploymentService(
           deploymentService, allWorkflowModules, processServices);

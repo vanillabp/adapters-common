@@ -22,6 +22,20 @@ public class ProcessServiceSpringBean<A> extends ProcessServiceBase<A> {
   private final MigrationProcessService<A> migrationProcessService;
 
   /**
+   * The process service of EVERY BPMN process id the workflow service classes of this
+   * aggregate declare, the primary one first - set by the
+   * {@link ProcessServiceBeanRegistrar}, which is the only place seeing all declaring classes
+   * at once.
+   * <p>
+   * Everything configurable per workflow is configurable for a secondary or declared-only id
+   * too (its prioritized adapters, its outbox, what its leftovers were persisted under), and
+   * each of those services asks its own questions. So the startup validations run over this
+   * list rather than over the primary service alone - the id a rename leaves behind is exactly
+   * the one whose leftovers nobody would otherwise look at.
+   */
+  private List<MigrationProcessService<A>> processServicesOfDeclaredIds;
+
+  /**
    * Creates the bean without a transaction-runner resolver - kept for tests; the bean
    * registrar always passes one.
    */
@@ -71,6 +85,31 @@ public class ProcessServiceSpringBean<A> extends ProcessServiceBase<A> {
     if (phaseTwoRouter != null) {
       phaseTwoRouter.register(migrationProcessService);
     }
+
+  }
+
+  /**
+   * @param processServicesOfDeclaredIds The process services of every declared BPMN process
+   *          id, the primary one first
+   */
+  public void setProcessServicesOfDeclaredIds(
+      final java.util.Collection<MigrationProcessService<A>> processServicesOfDeclaredIds) {
+
+    this.processServicesOfDeclaredIds = (processServicesOfDeclaredIds == null) || processServicesOfDeclaredIds.isEmpty()
+        ? null
+        : List.copyOf(processServicesOfDeclaredIds);
+
+  }
+
+  /**
+   * @return The process services of every declared BPMN process id, the primary one first;
+   *         the primary one alone where nothing was set (a test constructing this bean)
+   */
+  public List<MigrationProcessService<A>> getProcessServicesOfDeclaredIds() {
+
+    return processServicesOfDeclaredIds != null
+        ? processServicesOfDeclaredIds
+        : List.of(migrationProcessService);
 
   }
 

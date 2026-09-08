@@ -84,6 +84,75 @@ public interface ProcessVersionCatalog {
   }
 
   /**
+   * The start events a BPMS fires on its own - a timer, a signal, a condition - in ONE
+   * deployed version of a BPMN process, read from the model the BPMS still holds. The
+   * sibling of {@link #tasksOfVersion} for the other direction of the wiring: the specs
+   * are built exactly like the ones handed to
+   * {@link io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker#validateBpmsInitiatedStarts},
+   * so both speak about the same thing.
+   * <p>
+   * What the core does with the answer is judge the
+   * <code>&#64;WorkflowStartedByBpms</code> methods of a BPMN process id the application
+   * DECLARES without deploying a model for it - the id a renamed process left behind.
+   * Nothing wires such an id during this boot, so those methods are judged by nothing
+   * today, while the BPMS may well fire the old model's timer every day. A method naming
+   * a start event no held version has is then said out loud instead of silently never
+   * running.
+   * <p>
+   * Reading a model is BPMS-specific and not every BPMS can do it: an adapter which
+   * cannot returns <code>null</code>, and the core stays silent about that id rather
+   * than judging it by an answer it does not have. An adapter which CAN read models but
+   * finds no such start event in that version returns an empty collection.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version identifier the BPMS reported
+   * @return The BPMS-initiated start events of that version, or <code>null</code> if
+   *         this BPMS cannot say
+   */
+  default java.util.Collection<io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec> startEventsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return null;
+
+  }
+
+  /**
+   * The elements of ONE deployed version which can put a SECOND token into a running
+   * workflow - a non-interrupting boundary event, a parallel or inclusive gateway forking
+   * into several flows, a parallel multi-instance activity, a non-interrupting event
+   * subprocess. The same walk an adapter runs while wiring for
+   * {@link io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring#reportConcurrentTokenElements},
+   * run over a model the BPMS still holds.
+   * <p>
+   * The versions which run longest are the ones a check over this boot's model never sees:
+   * an older version with a parallel gateway the new model dropped keeps its workflows for
+   * as long as they take, and two branches writing one workflow aggregate lose updates there
+   * exactly as they would in the model just deployed. The core asks about a version only
+   * where workflows still run on it, so a version nobody is on costs no model read.
+   * <p>
+   * An adapter which cannot read a held model returns <code>null</code>, and nothing is
+   * guessed from the absence. An adapter which read the model and found no such element
+   * returns an empty collection.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version identifier the BPMS reported
+   * @return The IDs of the elements producing a second token in that version, or
+   *         <code>null</code> if this BPMS cannot say
+   */
+  default java.util.Collection<String> concurrentTokenElementsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return null;
+
+  }
+
+  /**
    * How many workflows still run on ONE deployed version - what decides whether an
    * unserved task definition of that version is a warning or a defect, and whether
    * outfading it (<code>outfaded-versions</code>) leaves workflows behind.

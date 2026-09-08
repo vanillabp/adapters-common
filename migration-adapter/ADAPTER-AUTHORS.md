@@ -322,6 +322,27 @@ while wiring, searching by the id you would have deployed it under (your prefix,
 `null` where your BPMS cannot be asked about the versions of a process - the default. Where you
 answer `null`, nothing changes for your adapter.
 
+What a catalog is asked is one question about the process and a few per version it holds.
+`deployedVersionsOf` and `resolveVersion` place the version ranges which name a tag.
+`activeInstanceCountOf` says how many workflows still run on a version, and `whatOlderVersionsMiss`
+names what a model your adapter did not rewrite will never get. The rest read a model your BPMS
+still holds: `tasksOfVersion` for the tasks of that version, so the core can tell whether the
+application still serves them, `startEventsOfVersion` for the start events your BPMS fires on its
+own there, and `concurrentTokenElementsOfVersion` for the elements which can put a second token
+into one of its workflows. Each of them is the walk you already run while wiring, run over a model
+your BPMS holds, so extract it once and use it for both directions rather than writing it twice.
+
+`startEventsOfVersion` exists for the id a renamed process left behind. Nothing wires such an id
+while an application boots, so the `@WorkflowStartedByBpms` methods kept for it are judged by
+nothing unless you can say what the held models start on, while your BPMS may fire the old timer
+every day. `concurrentTokenElementsOfVersion` is asked only about a version workflows still run
+on, and it is asked because those workflows run longest: a parallel gateway your newest model
+dropped keeps forking every workflow started before it, and an aggregate without a version
+attribute loses an update there exactly as it would in the model just deployed.
+
+Every model-reading question answers `null` where your BPMS cannot read that model, and the check
+reading it then says nothing about that id instead of judging it by an answer you do not have.
+
 The same boundary governs every check your adapter makes against a BPMN model: its verdict must
 not depend on which application version deployed the model it judges. Read what your BPMS holds
 for the ids the application declares wherever it can be asked, and where it cannot, say nothing

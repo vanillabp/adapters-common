@@ -1,6 +1,7 @@
 package io.vanillabp.integration.adapter.migration.deployment;
 
 import java.io.InputStream;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -94,6 +95,13 @@ public class DeploymentService {
    */
   private final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring workflowTaskWiring;
 
+  /**
+   * What the platform integration can add to the report about a BPMN process nothing claims -
+   * absent where the platform has nothing to say, and never asked on a boot which reports no
+   * such process.
+   */
+  private final UnclaimedBpmnProcessHints unclaimedProcessHints;
+
   public DeploymentService(
       final MigrationAdapterProperties properties,
       final List<AdapterDeploymentService<?, ?>> deploymentServices,
@@ -109,7 +117,19 @@ public class DeploymentService {
       final List<ExtensionWiringService<?, ?>> wiringServices,
       final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring workflowTaskWiring) {
 
+    this(properties, deploymentServices, wiringServices, workflowTaskWiring, null);
+
+  }
+
+  public DeploymentService(
+      final MigrationAdapterProperties properties,
+      final List<AdapterDeploymentService<?, ?>> deploymentServices,
+      final List<ExtensionWiringService<?, ?>> wiringServices,
+      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring workflowTaskWiring,
+      final UnclaimedBpmnProcessHints unclaimedProcessHints) {
+
     this.workflowTaskWiring = workflowTaskWiring;
+    this.unclaimedProcessHints = unclaimedProcessHints;
     this.properties = properties;
     this.deploymentServices = deploymentServices;
     this.wiringServices = new LinkedList<>(wiringServices
@@ -498,15 +518,53 @@ public class DeploymentService {
               serves it. Either serve the process, by a class annotated with \
               @WorkflowService(bpmnProcess = @BpmnProcess(bpmnProcessId = "<the process>")) holding a \
               @WorkflowTask method per task, or take the process out of its file. Nothing to do here \
-              if another application serves it.""",
+              if another application serves it.{}""",
           workflowModuleId,
           unclaimedProcessIds
               .stream()
               .map(bpmnProcessId -> "\n  - process '%s' of file '%s'".formatted(
                   bpmnProcessId,
                   filesByProcessId.getOrDefault(bpmnProcessId, "unknown")))
-              .collect(java.util.stream.Collectors.joining()));
+              .collect(java.util.stream.Collectors.joining()),
+          whatElseIsWorthSaying(workflowModuleId, unclaimedProcessIds));
     });
+
+  }
+
+  /**
+   * What the platform integration has to add about the processes just reported, as lines of the
+   * same WARN - a reader gets one report per workflow module instead of two which have to be
+   * read together.
+   * <p>
+   * Asked here and nowhere else, so the price of the answer is paid on a boot which is already
+   * reporting a problem and never on a healthy one.
+   *
+   * @param workflowModuleId The workflow module being reported
+   * @param unclaimedProcessIds The BPMN process ids nothing claims
+   * @return The lines to append, empty where the platform has nothing to say
+   */
+  private String whatElseIsWorthSaying(
+      final String workflowModuleId,
+      final Collection<String> unclaimedProcessIds) {
+
+    if (unclaimedProcessHints == null) {
+      return "";
+    }
+    final List<String> hints;
+    try {
+      hints = unclaimedProcessHints.whatElseIsWorthSaying(workflowModuleId, unclaimedProcessIds);
+    } catch (final RuntimeException e) {
+      // a report which fails would turn a warning into a failed boot, which is the opposite
+      // of what this report is for
+      log.debug("Could not look for further reasons why nothing claims a process", e);
+      return "";
+    }
+    if ((hints == null) || hints.isEmpty()) {
+      return "";
+    }
+    return hints
+        .stream()
+        .collect(java.util.stream.Collectors.joining("\n", "\n", ""));
 
   }
 
