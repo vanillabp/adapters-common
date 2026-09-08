@@ -84,6 +84,42 @@ public interface ProcessVersionCatalog {
   }
 
   /**
+   * The start events a BPMS fires on its own - a timer, a signal, a condition - in ONE
+   * deployed version of a BPMN process, read from the model the BPMS still holds. The
+   * sibling of {@link #tasksOfVersion} for the other direction of the wiring: the specs
+   * are built exactly like the ones handed to
+   * {@link io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker#validateBpmsInitiatedStarts},
+   * so both speak about the same thing.
+   * <p>
+   * What the core does with the answer is judge the
+   * <code>&#64;WorkflowStartedByBpms</code> methods of a BPMN process id the application
+   * DECLARES without deploying a model for it - the id a renamed process left behind.
+   * Nothing wires such an id during this boot, so those methods are judged by nothing
+   * today, while the BPMS may well fire the old model's timer every day. A method naming
+   * a start event no held version has is then said out loud instead of silently never
+   * running.
+   * <p>
+   * Reading a model is BPMS-specific and not every BPMS can do it: an adapter which
+   * cannot returns <code>null</code>, and the core stays silent about that id rather
+   * than judging it by an answer it does not have. An adapter which CAN read models but
+   * finds no such start event in that version returns an empty collection.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version identifier the BPMS reported
+   * @return The BPMS-initiated start events of that version, or <code>null</code> if
+   *         this BPMS cannot say
+   */
+  default java.util.Collection<io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec> startEventsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return null;
+
+  }
+
+  /**
    * How many workflows still run on ONE deployed version - what decides whether an
    * unserved task definition of that version is a warning or a defect, and whether
    * outfading it (<code>outfaded-versions</code>) leaves workflows behind.

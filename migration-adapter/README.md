@@ -2527,6 +2527,18 @@ Three consequences run through the check from there:
   exempts one serving only older versions: no model of this boot carries the task it is wired to.
   This is why the core asks the adapters BEFORE `validateNoUnwiredWorkflowTaskMethods`.
 
+The exemption leaves the `@WorkflowStartedByBpms` methods of such an id judged by nothing, which
+is a hole of its own: an adapter validates those methods against the start events it read while
+wiring THIS boot's model, and there is no such model here, while the BPMS may fire the old model's
+timer every day. `ProcessVersionCatalog#startEventsOfVersion` is the question which closes it, and
+`BpmsInitiatedStarts#validateAgainstVersionsTheBpmsHolds` compares the union over every version
+the BPMS holds under the id against what the methods name. A method naming a start event no held
+version has, and a declaration whose held versions start on their own nowhere at all, are both
+said out loud. Both are warnings naming the versions they were drawn from rather than the end of a
+boot, because what was read are models nobody can change any more (decision 38 of `DECISIONS.md`),
+and where one version cannot be read the check says nothing about that BPMS at all - the start
+event might be sitting in exactly that model. `StartEventsOfARenamedProcessTest` holds it.
+
 The check is one half of what such an id needs; the other is that its workflows keep being served,
 and that half belongs to the adapters. `WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed`
 is where they read the declared ids together with what the application serves for each of them,

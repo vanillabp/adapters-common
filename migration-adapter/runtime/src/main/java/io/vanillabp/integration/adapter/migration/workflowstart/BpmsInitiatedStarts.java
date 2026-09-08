@@ -303,6 +303,174 @@ public class BpmsInitiatedStarts {
   }
 
   /**
+   * Judges the <code>&#64;WorkflowStartedByBpms</code> methods of the BPMN process ids the
+   * workflow module DECLARES without deploying a model for them, against the start events
+   * of the versions the BPMS still holds under such an id.
+   * <p>
+   * Nothing wires such an id during a boot - the id a renamed BPMN process left behind
+   * arrives with no model - so {@link #validate} is never called for it and its methods are
+   * judged by nothing, while the BPMS may fire the old model's timer every day. The
+   * question the judgement needs is
+   * {@link io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog#startEventsOfVersion},
+   * and this is where the answer is used.
+   * <p>
+   * Every finding is a warning naming the versions it was drawn from, never the end of a
+   * boot: what is read here are models nobody can change any more, and a check reading them
+   * says what it found instead of refusing - see decision 38 in the repository's
+   * DECISIONS.md. Where a version cannot be read at all, this stays silent for that BPMS,
+   * because a start event might be sitting in exactly the model which could not be read.
+   *
+   * @param workflowModuleId The workflow module which finished deploying
+   */
+  public void validateAgainstVersionsTheBpmsHolds(
+      final String workflowModuleId) {
+
+    if (declaredProcesses == null) {
+      return;
+    }
+    entries
+        .entrySet()
+        .stream()
+        .filter(entry -> entry.getKey().workflowModuleId().equals(workflowModuleId))
+        .filter(entry -> declaredProcesses
+            .isDeclaredWithoutDeployment(workflowModuleId, entry.getKey().bpmnProcessId()))
+        .forEach(entry -> validateAgainstVersionsTheBpmsHolds(
+            workflowModuleId,
+            entry.getKey().bpmnProcessId(),
+            entry.getValue()));
+
+  }
+
+  /**
+   * The same for one declared-only BPMN process, once per BPMS answering for it: the
+   * versions belong to one BPMS, so the message names the adapter which holds them.
+   */
+  private void validateAgainstVersionsTheBpmsHolds(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final RegistryEntry entry) {
+
+    processVersions
+        .registeredCatalogs(workflowModuleId, bpmnProcessId)
+        .forEach(registered -> {
+          final var heldVersions = registered
+              .catalog()
+              .deployedVersionsOf(workflowModuleId, bpmnProcessId);
+          if ((heldVersions == null) || heldVersions.isEmpty()) {
+            // an id nothing is held under is reported by the startup check for old
+            // process versions, in its own words and once per adapter
+            return;
+          }
+          final var versionsRead = new LinkedList<String>();
+          final var startEvents = new LinkedList<BpmsInitiatedStartSpec>();
+          for (final var held : heldVersions) {
+            final var version = held.version();
+            if (version == null) {
+              continue;
+            }
+            final var eventsOfVersion = registered
+                .catalog()
+                .startEventsOfVersion(workflowModuleId, bpmnProcessId, version);
+            if (eventsOfVersion == null) {
+              // one model which cannot be read is enough to make every verdict about
+              // this id a guess, so nothing is said about this BPMS at all
+              return;
+            }
+            versionsRead.add(version);
+            eventsOfVersion
+                .stream()
+                .filter(spec -> startEvents
+                    .stream()
+                    .noneMatch(known -> known.elementId().equals(spec.elementId())))
+                .forEach(startEvents::add);
+          }
+          if (versionsRead.isEmpty()) {
+            return;
+          }
+          reportStartEventsTheHeldVersionsLack(
+              workflowModuleId, bpmnProcessId, registered.adapterId(), entry, versionsRead, startEvents);
+        });
+
+  }
+
+  /**
+   * Says what the methods of a declared-only id serve which the versions the BPMS holds do
+   * not have - the whole process where no held version starts on its own, and the single
+   * method otherwise.
+   */
+  private void reportStartEventsTheHeldVersionsLack(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String adapterId,
+      final RegistryEntry entry,
+      final List<String> versionsRead,
+      final List<BpmsInitiatedStartSpec> startEvents) {
+
+    synchronized (entry) {
+      if (startEvents.isEmpty()) {
+        log
+            .warn(
+                """
+                    The @WorkflowStartedByBpms method(s) {} serve BPMN process '{}' of workflow module \
+                    '{}', which this application declares without deploying a model for it, but none of \
+                    the version(s) adapter '{}' still holds under that id ({}) has a start event the \
+                    BPMS fires on its own (timer, signal or conditional) - those methods never run. \
+                    Either the declared id is misspelled, and this workflow module deploys {}, or the \
+                    methods belong to another process: a workflow started by the application gets its \
+                    aggregate from ProcessService#startWorkflow.""",
+                describeHandlers(entry.handlers),
+                bpmnProcessId,
+                workflowModuleId,
+                adapterId,
+                String.join(", ", versionsRead),
+                deployedProcessIdsOf(workflowModuleId));
+        return;
+      }
+      entry.handlers
+          .stream()
+          .filter(handler -> handler.getStartEventId() != null)
+          .filter(handler -> startEvents
+              .stream()
+              .noneMatch(spec -> spec.elementId().equals(handler.getStartEventId())))
+          .forEach(handler -> log
+              .warn(
+                  """
+                      The @WorkflowStartedByBpms method '{}' serves start event '{}' of BPMN process '{}' \
+                      of workflow module '{}', which this application declares without deploying a model \
+                      for it, but no version adapter '{}' still holds under that id has such a start event \
+                      fired by the BPMS - that method never runs. The BPMS-initiated start events of the \
+                      version(s) {} are: {}. Correct the id against the model the BPMS holds, or remove \
+                      the method once the workflows it was kept for have ended.""",
+                  handler.describe(),
+                  handler.getStartEventId(),
+                  bpmnProcessId,
+                  workflowModuleId,
+                  adapterId,
+                  String.join(", ", versionsRead),
+                  describeStartEvents(startEvents)));
+    }
+
+  }
+
+  /**
+   * The BPMN process ids of that workflow module a model WAS deployed under during this
+   * boot - what a developer compares a declared id which reaches nothing against.
+   */
+  private String deployedProcessIdsOf(
+      final String workflowModuleId) {
+
+    final var deployed = declaredProcesses
+        .deployedProcessesOf(workflowModuleId)
+        .stream()
+        .map("'%s'"::formatted)
+        .collect(Collectors.joining(", "));
+    return deployed.isEmpty()
+        ? "none"
+        : deployed;
+
+  }
+
+  /**
    * Whether the method exists for versions OLDER than the one this boot deployed
    * - it then names an element of a model which is not the deployed one.
    * <p>

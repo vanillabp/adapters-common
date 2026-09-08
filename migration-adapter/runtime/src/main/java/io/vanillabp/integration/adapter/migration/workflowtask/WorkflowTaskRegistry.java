@@ -798,6 +798,11 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
     bpmsInitiatedStarts.resolveProcessVersions(workflowModuleId);
     workflowEndedHandlers.resolveProcessVersions(workflowModuleId);
 
+    // last, because it compares version ranges: an id nothing was deployed under is
+    // wired by no adapter, so the start events its methods serve are judged here or
+    // nowhere
+    bpmsInitiatedStarts.validateAgainstVersionsTheBpmsHolds(workflowModuleId);
+
   }
 
   @Override
