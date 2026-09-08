@@ -11,6 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.Typed;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import jakarta.transaction.TransactionSynchronizationRegistry;
@@ -21,22 +22,27 @@ import jakarta.transaction.TransactionSynchronizationRegistry;
  * {@link TransactionRunnerResolver} saying which runner a workflow aggregate is written
  * through.
  * <p>
- * An extension writing something of its own next to a workflow aggregate has to write it
- * in the transaction of that aggregate, and which transaction that is, is not the
- * extension's answer: the application may have contributed a
- * {@link TransactionRunnerAware} bean for the aggregate or a runner serving all of them,
- * and a runner of its own would then commit the extension's entry separately from the
- * workflow it belongs to. So the extension injects the resolver and asks it per
- * aggregate class, exactly as the process services do. The Spring Boot integration
- * offers both as beans for the same reason
- * (<code>vanillaBpPlatformTransactionRunner</code>,
- * <code>vanillaBpTransactionRunnerResolver</code>).
+ * <b>What an extension injects is the resolver, never a runner.</b> Something writing
+ * next to a workflow aggregate has to write it in the transaction of that aggregate, and
+ * which transaction that is is not the extension's answer: the application may have
+ * contributed a {@link TransactionRunnerAware} bean for the aggregate or a runner
+ * serving all of them, and a runner of the extension's own would commit its entry
+ * separately from the workflow it belongs to. So the extension asks
+ * {@link TransactionRunnerResolver#resolveFor(Class)} per aggregate class, exactly as the
+ * process services do, and the platform's own runner is what it gets where the
+ * application contributed nothing. The Spring Boot integration offers the resolver as
+ * <code>vanillaBpTransactionRunnerResolver</code> for the same reason, and the contract
+ * is the same on both platforms.
  * <p>
- * The platform's runner is produced under its own class rather than under
- * {@link TransactionRunner}: an application may contribute a runner of its own, and
- * every injection point inside the platform would then be ambiguous. As a CDI bean it
- * is injectable as {@link TransactionRunner} all the same, which is what an extension
- * without an aggregate at hand asks for.
+ * <b>Why {@link Typed}.</b> CDI derives the types of a bean from every supertype of what
+ * a producer returns, so this bean would carry {@link TransactionRunner} among its types
+ * whatever the return type says, and an application contributing a runner bean of its own
+ * would make every <code>&#64;Inject TransactionRunner</code> ambiguous - inside the
+ * platform and in every extension which believed it could inject one.
+ * {@code @Typed(QuarkusTransactionRunner.class)} cuts the bean's types down to that class
+ * (plus <code>Object</code>): the platform injects it by its concrete class, an
+ * application's runner stays the only bean of the SPI type, and an extension is left with
+ * the resolver, which is the answer it wanted anyway.
  */
 @ApplicationScoped
 public class TransactionRunnerProducer {
@@ -89,12 +95,20 @@ public class TransactionRunnerProducer {
   }
 
   /**
+   * The bean is a {@link Singleton} rather than a normal scope on purpose: a
+   * pseudo-scoped bean is handed out unproxied, which is what lets
+   * {@link QuarkusTransactionRunnerResolver} tell the platform's runner from an
+   * application's by identity. A normal scope would put a client proxy in front of it and
+   * that comparison would silently stop matching, so the resolution of an application
+   * which brought its own runner is held by {@code ApplicationOwnedStoresTest}.
+   *
    * @return The platform's runner: JTA, plus the request context Panache and Hibernate
    *         need on the threads an adapter delivers on
    */
   @Produces
   @Singleton
   @Unremovable
+  @Typed(QuarkusTransactionRunner.class)
   public QuarkusTransactionRunner vanillaBpPlatformTransactionRunner() {
 
     return platformRunner;

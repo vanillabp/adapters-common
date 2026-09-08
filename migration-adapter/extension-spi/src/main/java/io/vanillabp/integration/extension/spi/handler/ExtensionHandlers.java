@@ -103,4 +103,25 @@ public interface ExtensionHandlers {
   List<String> bpmnProcessesOf(
       String workflowModuleId);
 
+  /**
+   * The <code>name</code> a modeller wrote on a BPMN element, as the adapter read it out
+   * of the model it deployed. This is the label a person expects to see next to a task,
+   * and it lives nowhere in the application: an extension which wants it would otherwise
+   * parse the same BPMN bytes a second time.
+   * <p>
+   * The answer is a plain text rather than a type of the adapter SPI, because an
+   * extension builds against this artifact and nothing else. It is empty where the
+   * element carries no name, where the adapter does not read one, and where nothing was
+   * deployed under that process at all.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The BPMN process, spelled the way the application writes it
+   * @param activityId The <code>id</code> attribute of the element
+   * @return The element's name, or empty
+   */
+  Optional<String> bpmnTaskNameOf(
+      String workflowModuleId,
+      String bpmnProcessId,
+      String activityId);
+
 }

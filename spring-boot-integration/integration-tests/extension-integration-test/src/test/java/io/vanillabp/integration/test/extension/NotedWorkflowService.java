@@ -92,4 +92,23 @@ public class NotedWorkflowService {
 
   }
 
+  /**
+   * A method of the extension which VanillaBP never sees, because the scan of a handler
+   * contract reads the PUBLIC methods of a workflow service class the way the scan of
+   * <code>&#64;WorkflowTask</code> does. Nothing about the wiring gives that away for an
+   * extension - it simply behaves as if this method had never been written - so the boot
+   * names it, which is what {@code ExtensionHandlerMethodsNobodySeesTest} reads.
+   *
+   * @param prefilled The note this extension prefilled
+   * @return What would have been published if anybody could call it
+   */
+  @SampleNote(element = "Activity_TooWellHidden")
+  protected SampleNoteDetails noteNobodyReaches(
+      final SampleNoteDetails prefilled) {
+
+    prefilled.setTitle("nobody reaches this");
+    return prefilled;
+
+  }
+
 }

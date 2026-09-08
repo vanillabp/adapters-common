@@ -15,21 +15,25 @@ process services, `QuarkusPreCommitRegistrar`, the phase-two router and the work
 use those beans rather than building runners of their own, so there is one answer instead of four
 which drift.
 
-An extension writing something of its own next to a workflow aggregate injects the resolver and
-asks it per aggregate class. It must not decide that itself: the application may have contributed a
-`TransactionRunnerAware` bean for the aggregate or a runner serving every aggregate, and a runner
-of the extension's own would commit its entry separately from the workflow it belongs to. The
-Spring Boot integration offers both as beans for the same reason
-(`vanillaBpPlatformTransactionRunner`, `vanillaBpTransactionRunnerResolver`). An extension in
-miniature injecting them, and the guiding refusal of `inCurrent` outside a transaction, is
-`ExtensionEnablementTest`.
+What an extension injects is the **resolver**, never a runner. Something writing next to a
+workflow aggregate asks `resolveFor(aggregateClass)` and writes through what comes back: the
+application may have contributed a `TransactionRunnerAware` bean for that aggregate or a runner
+serving every aggregate, and a runner of the extension's own would commit its entry separately
+from the workflow it belongs to. Where the application contributed nothing, the answer is the
+platform's runner, so the resolver is the entry point in every case. The contract is the same on
+Spring Boot, where the resolver is `vanillaBpTransactionRunnerResolver`. An extension in miniature
+asking it, and the guiding refusal of `inCurrent` outside a transaction, is
+`ExtensionEnablementTest`; an application which brought a runner of its own next to that extension
+is `ExtensionNextToApplicationTransactionTest`.
 
-The platform's runner is produced under its own class, `QuarkusTransactionRunner`, not under the
-SPI type: an application may contribute a `TransactionRunner` bean of its own, and every injection
-point inside the platform would be ambiguous then. It is injectable as `TransactionRunner` all the
-same, which is what an extension without an aggregate at hand asks for, and the resolver takes it
-out of its own second step by identity so a coverage verdict is not silenced by the platform's own
-bean.
+The platform's runner carries `@Typed(QuarkusTransactionRunner.class)`, and that is not
+cosmetic. CDI derives the types of a bean from every supertype of what a producer returns, so
+without it the bean would carry `TransactionRunner` among its types and an application with a
+runner of its own would make every `@Inject TransactionRunner` ambiguous, inside the platform and
+in an extension alike. Cut down to the concrete class, the platform injects it by that class, an
+application's runner stays the only bean of the SPI type, and nobody is tempted to inject the bare
+type. The resolver still takes the platform's runner out of its own second step by identity, so a
+coverage verdict is not silenced by it should the restriction ever be dropped.
 
 ## Running a check right before the commit
 

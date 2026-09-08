@@ -2403,8 +2403,9 @@ worse than one: it simply behaves as if the application had never written the me
 
 **What the registry already knows about the application.** `workflowAggregateOf(module, process)`
 answers the workflow-aggregate class a BPMN process works on, primary and secondary processes
-alike, and `bpmnProcessesOf(module)` names every process a `@WorkflowService` declares in a
-workflow module. Both are what the scan read off the annotations, which is why an extension asks
+alike, `bpmnProcessesOf(module)` names every process a `@WorkflowService` declares in a workflow
+module, and `bpmnTaskNameOf(module, process, activityId)` answers the `name` a modeller wrote on an
+element, kept from what the adapter handed to `validateTaskWiring`. Both are what the scan read off the annotations, which is why an extension asks
 instead of scanning the beans again: a second scan has to unwrap the proxies of a platform the
 extension should not have to know about, and it reads a different set of methods than VanillaBP
 does.
@@ -2469,13 +2470,14 @@ developer can act on.
 The same holds for the transaction such an entry is written in. `TransactionRunnerResolver` is a
 bean on both platforms, and `#resolveFor(workflowAggregateClass)` answers the runner the workflow's
 own writes go through, which may well be one the APPLICATION contributed: a `TransactionRunnerAware`
-bean for that aggregate, or a runner serving every aggregate no aware bean covers. An extension
-opening a transaction of its own would commit its entry separately from the workflow it belongs to,
-and it would lose `beforeCommit`, the rollback-only verdict and the optimistic-locking recognition
-of the platform's own runner along the way. Where there is no aggregate to ask about,
-`TransactionRunner` is a bean too (Spring Boot: `vanillaBpPlatformTransactionRunner`, Quarkus:
-`TransactionRunnerProducer`), and `#describeResolutionFor` says in words which transaction was
-resolved, which is what a startup message of the extension can quote.
+bean for that aggregate, or a runner serving every aggregate no aware bean covers. Where the
+application contributed nothing, the answer is the platform's own runner, so the resolver is the
+entry point in every case and the bare `TransactionRunner` is not: an extension injecting that type
+would be ambiguous the moment an application brings a runner, and it would lose the attribution per
+aggregate it needed in the first place. An extension opening a transaction of its own loses more
+still, namely `beforeCommit`, the rollback-only verdict and the optimistic-locking recognition of
+the platform's own runner. `#describeResolutionFor` says in words which transaction was resolved,
+which is what a startup message of the extension can quote.
 
 **What holds all of this.** `ExtensionHandlerTest` and
 `ExtensionElectionAndConfigurationTest` (Spring Boot, module

@@ -202,4 +202,22 @@ public class ExtensionHandlerTest {
 
   }
 
+  @Test
+  @DisplayName("The extension is told the name a modeller wrote on a BPMN element")
+  public void theExtensionReadsTheBpmnName() {
+
+    assertEquals(
+        java.util.Optional.of(TestApplication.USER_TASK_NAME),
+        handlers.bpmnTaskNameOf("extension-module", "DummyProcess", TestApplication.USER_TASK_ID));
+    // an element the adapter reported no name for, and a process nothing was deployed
+    // under, are both answered with nothing rather than with a guess
+    assertEquals(
+        java.util.Optional.empty(),
+        handlers.bpmnTaskNameOf("extension-module", "DummyProcess", "Activity_1c9pa8d"));
+    assertEquals(
+        java.util.Optional.empty(),
+        handlers.bpmnTaskNameOf("extension-module", "NobodyDeployedThis", TestApplication.USER_TASK_ID));
+
+  }
+
 }

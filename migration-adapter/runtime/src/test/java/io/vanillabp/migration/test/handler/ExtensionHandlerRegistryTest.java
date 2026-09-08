@@ -2,6 +2,7 @@ package io.vanillabp.migration.test.handler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.vanillabp.integration.adapter.migration.config.AdapterConfigProperties;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
+import io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees;
 import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
@@ -926,8 +928,7 @@ public class ExtensionHandlerRegistryTest {
   @DisplayName("A handler method of an extension which the scan cannot reach is reported like a @WorkflowTask one")
   public void anInvisibleExtensionHandlerIsReported() {
 
-    final var report = io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees
-        .reportFor(HiddenNoteService.class, List.of(Note.class));
+    final var report = HandlerMethodsNobodySees.reportFor(HiddenNoteService.class, List.of(Note.class));
 
     assertTrue(report.contains(HiddenNoteService.class.getName()), report);
     assertTrue(report.contains("the @Note method"), report);
@@ -935,12 +936,9 @@ public class ExtensionHandlerRegistryTest {
     assertTrue(report.contains("is protected"), report);
     assertTrue(report.contains("Make the method public"), report);
     // and the annotations of VanillaBP's own SPI say nothing about this class
-    assertEquals(
-        null,
-        io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees
-            .reportFor(
-                HiddenNoteService.class,
-                io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees.CORE_HANDLER_ANNOTATIONS));
+    assertNull(
+        HandlerMethodsNobodySees
+            .reportFor(HiddenNoteService.class, HandlerMethodsNobodySees.CORE_HANDLER_ANNOTATIONS));
 
   }
 

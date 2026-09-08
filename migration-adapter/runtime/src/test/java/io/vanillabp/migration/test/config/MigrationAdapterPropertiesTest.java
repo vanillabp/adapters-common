@@ -10,6 +10,8 @@ import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
@@ -795,8 +797,8 @@ public class MigrationAdapterPropertiesTest {
    * type needs no section at all - the migration setup, where dropping the second half
    * left the old adapter without beans.
    */
-  @org.junit.jupiter.api.Nested
-  @org.junit.jupiter.api.DisplayName("The adapter ids of one type")
+  @Nested
+  @DisplayName("The adapter ids of one type")
   class AdapterIdsOfType {
 
     private MigrationAdapterProperties configured(
@@ -811,7 +813,7 @@ public class MigrationAdapterPropertiesTest {
     }
 
     @Test
-    @org.junit.jupiter.api.DisplayName("A section carrying nothing but the adapter's own keys takes its id as the type")
+    @DisplayName("A section carrying nothing but the adapter's own keys takes its id as the type")
     public void aSectionWithoutATypeIsTheType() {
 
       // the section bound nothing the core model knows, so there is no entry for it -
@@ -823,7 +825,7 @@ public class MigrationAdapterPropertiesTest {
     }
 
     @Test
-    @org.junit.jupiter.api.DisplayName("An id named in prioritized-adapters needs no section, even next to another adapter")
+    @DisplayName("An id named in prioritized-adapters needs no section, even next to another adapter")
     public void aPrioritizedIdNeedsNoSection() {
 
       final var properties = configured(
@@ -836,7 +838,7 @@ public class MigrationAdapterPropertiesTest {
     }
 
     @Test
-    @org.junit.jupiter.api.DisplayName("An id named like this type but declaring another one belongs to that other adapter")
+    @DisplayName("An id named like this type but declaring another one belongs to that other adapter")
     public void anIdNamedLikeTheTypeMayDeclareAnother() {
 
       final var properties = configured(
@@ -849,7 +851,7 @@ public class MigrationAdapterPropertiesTest {
     }
 
     @Test
-    @org.junit.jupiter.api.DisplayName("A custom id naming this type is served, and the type's own name next to it")
+    @DisplayName("A custom id naming this type is served, and the type's own name next to it")
     public void aCustomIdNamingTheTypeIsServed() {
 
       final var properties = configured(
@@ -861,7 +863,7 @@ public class MigrationAdapterPropertiesTest {
     }
 
     @Test
-    @org.junit.jupiter.api.DisplayName("Nothing configured at all: the single adapter dependency IS the configuration")
+    @DisplayName("Nothing configured at all: the single adapter dependency IS the configuration")
     public void withoutAnyConfigurationTheTypeIsTheId() {
 
       assertEquals(List.of("camunda7"), configured(List.of(), Map.of()).adapterIdsOfType("camunda7"));
@@ -869,7 +871,7 @@ public class MigrationAdapterPropertiesTest {
     }
 
     @Test
-    @org.junit.jupiter.api.DisplayName("With another adapter configured, an unnamed type gets nothing")
+    @DisplayName("With another adapter configured, an unnamed type gets nothing")
     public void aTypeNobodyNamedGetsNothing() {
 
       final var properties = configured(

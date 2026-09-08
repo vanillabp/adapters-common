@@ -300,11 +300,14 @@ arrives here.
 | `resolveWorkflowAggregateIdName(module, process)`                             | the variable name a BPMS without a business key stores the aggregate's id under                                                                                                                            |
 
 A `BpmnTaskSpec` carries a fourth thing next to the activity id, the task definition and whether a
-handler is optional: the `name` attribute the modeller wrote on the element. Pass it if you read it
-anyway while you walk the model, and pass nothing if you do not; the constructors and the
-`userTask` factory without it are unchanged, and nothing VanillaBP decides depends on the name. What
-it saves is a second pass over the same bytes by whoever needs the label a person reads in a task
-list.
+handler is optional: the `name` attribute the modeller wrote on the element. Fill it. You walk that
+element anyway, and you are the only one who can read your BPMN dialect, so an extension which
+needs the label a person reads in a task list would otherwise parse the same bytes a second time.
+Nothing VanillaBP decides depends on it: the core keeps the names of the tasks you hand to
+`validateTaskWiring` and answers `ExtensionHandlers#bpmnTaskNameOf(module, process, activityId)`
+with them, and an element you pass no name for is answered with nothing rather than with a guess.
+The constructors and the `userTask` factory without a name are unchanged, so an adapter which does
+not read one keeps compiling and keeps behaving as it did.
 
 If your BPMS can start a workflow by itself, ask `BpmsInitiatedStartInvoker` to validate the start
 events you found, and throw where your BPMS cannot report such a start at all: a workflow running

@@ -2,7 +2,7 @@ package io.vanillabp.integration.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,6 +23,7 @@ import io.vanillabp.integration.extension.spi.handler.ExtensionHandlers;
 import io.vanillabp.integration.test.extension.EveryWorkflowRunsHere;
 import io.vanillabp.integration.test.extension.NoteAggregate;
 import io.vanillabp.integration.test.extension.NoteAggregatePersistence;
+import io.vanillabp.integration.test.extension.NoteTaskWiringSource;
 import io.vanillabp.integration.test.extension.NoteWorkflowService;
 import io.vanillabp.integration.test.extension.TransactionUsingExtension;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -54,6 +55,7 @@ public class ExtensionEnablementTest {
           .addClass(NoteWorkflowService.class)
           .addClass(EveryWorkflowRunsHere.class)
           .addClass(TransactionUsingExtension.class)
+          .addClass(NoteTaskWiringSource.class)
           .addAsResource("bpmn/first.bpmn", "processes/dummy/NoteProcess.bpmn")
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"));
 
@@ -229,6 +231,20 @@ public class ExtensionEnablementTest {
   }
 
   @Test
+  @DisplayName("The extension is told the name a modeller wrote on a BPMN element")
+  public void theExtensionReadsTheBpmnName() {
+
+    assertEquals(
+        java.util.Optional.of(NoteTaskWiringSource.NAME),
+        handlers.bpmnTaskNameOf(MODULE, PROCESS, NoteTaskWiringSource.ACTIVITY_ID));
+    // an element the adapter reported no name for, and a process nothing was deployed
+    // under, are both answered with nothing rather than with a guess
+    assertEquals(java.util.Optional.empty(), handlers.bpmnTaskNameOf(MODULE, PROCESS, "TheServiceTask"));
+    assertEquals(java.util.Optional.empty(), handlers.bpmnTaskNameOf(MODULE, "NobodyDeployedThis", "TheUserTask"));
+
+  }
+
+  @Test
   @DisplayName("An extension is told the transaction the workflow's own writes run in")
   public void anExtensionResolvesTheTransactionOfTheAggregate() {
 
@@ -236,7 +252,7 @@ public class ExtensionEnablementTest {
     // JTA - and it is the very object the process services write through, not a second
     // one built next to it
     assertEquals("the JTA transaction of Quarkus", transactions.describeResolutionFor(NoteAggregate.class));
-    assertSame(transactions.platformRunner(), transactions.runnerOf(NoteAggregate.class));
+    assertNotNull(transactions.runnerOf(NoteAggregate.class));
 
   }
 
@@ -247,7 +263,7 @@ public class ExtensionEnablementTest {
     final var failure = assertThrows(
         IllegalStateException.class,
         () -> transactions
-            .platformRunner()
+            .runnerOf(NoteAggregate.class)
             .inCurrent(() -> "never reached"));
 
     assertTrue(failure.getMessage().contains("no transaction is active"), failure.getMessage());
