@@ -1,5 +1,6 @@
 package io.vanillabp.migration.test.workflowstart;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -274,6 +275,26 @@ public class BpmsInitiatedStartTest {
     public Aggregate build() {
 
       return null;
+
+    }
+
+  }
+
+  static class OldStartEventService {
+
+    @WorkflowStartedByBpms(id = "OldStart")
+    public void keptForTheOldModel(
+        final Aggregate aggregate) {
+
+    }
+
+  }
+
+  static class OldStartEventOfAVersionNobodyHoldsService {
+
+    @WorkflowStartedByBpms(id = "OldStart", version = "99")
+    public void keptForNothing(
+        final Aggregate aggregate) {
 
     }
 
@@ -600,6 +621,96 @@ public class BpmsInitiatedStartTest {
     assertEquals("settlement-"
         + TRIGGER_TIME, result.workflowAggregateId());
     assertEquals("built by TIMER", persistence.aggregates.get(result.workflowAggregateId()).getRegion());
+
+  }
+
+  @Test
+  @DisplayName("A method kept for a declared-only id is judged by the versions the BPMS holds")
+  public void aMethodKeptForADeclaredOnlyIdIsExempt() {
+
+    final var testee = registry(new TransactionRunnerStub());
+    // registered, but validateTaskWiring never runs for this id: nothing was
+    // deployed under it, which is what declaring the old id of a renamed process
+    // looks like from in here
+    testee
+        .registerWorkflowService(
+            MODULE, PROCESS, OldStartEventService.class, OldStartEventService::new, type -> null, processService(
+                stringIdPersistence(), Aggregate.class));
+    testee.registerProcessVersions("test-adapter", MODULE, PROCESS, catalogHolding("1"));
+
+    // the deployed model (of some other generation's shape) does not carry the
+    // method's start event - and must not be what the method is judged by, because
+    // the BPMS holds a version which does
+    assertDoesNotThrow(
+        () -> testee
+            .validateBpmsInitiatedStarts(
+                MODULE,
+                PROCESS,
+                List.of(BpmsInitiatedStartSpec.of("SomeOtherStart", BpmsStartTrigger.Kind.TIMER))));
+
+  }
+
+  @Test
+  @DisplayName("A method of a declared-only id serving NO held version is still reported")
+  public void aMethodServingNoHeldVersionOfADeclaredOnlyIdIsReported() {
+
+    final var testee = registry(new TransactionRunnerStub());
+    testee
+        .registerWorkflowService(
+            MODULE,
+            PROCESS,
+            OldStartEventOfAVersionNobodyHoldsService.class,
+            OldStartEventOfAVersionNobodyHoldsService::new,
+            type -> null,
+            processService(stringIdPersistence(), Aggregate.class));
+    testee.registerProcessVersions("test-adapter", MODULE, PROCESS, catalogHolding("1"));
+
+    final var failure = assertThrows(
+        IllegalStateException.class,
+        () -> testee
+            .validateBpmsInitiatedStarts(
+                MODULE,
+                PROCESS,
+                List.of(BpmsInitiatedStartSpec.of("SomeOtherStart", BpmsStartTrigger.Kind.TIMER))));
+    assertTrue(failure.getMessage().contains("OldStart"), failure.getMessage());
+
+  }
+
+  /**
+   * A catalog answering that the BPMS holds exactly the given versions.
+   */
+  private static io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog catalogHolding(
+      final String... versions) {
+
+    return new io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog() {
+
+      @Override
+      public List<io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion> deployedVersionsOf(
+          final String workflowModuleId,
+          final String bpmnProcessId) {
+
+        return java.util.Arrays
+            .stream(versions)
+            .map(version -> io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion.of(version, null))
+            .toList();
+
+      }
+
+      @Override
+      public io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion resolveVersion(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String versionOrVersionTag) {
+
+        return deployedVersionsOf(workflowModuleId, bpmnProcessId)
+            .stream()
+            .filter(version -> version.version().equals(versionOrVersionTag))
+            .findFirst()
+            .orElse(null);
+
+      }
+
+    };
 
   }
 

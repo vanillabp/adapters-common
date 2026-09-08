@@ -153,7 +153,10 @@ before.
 
 For an adapter nothing is mandatory: `AdapterDeploymentService#processVersionCatalogOf` answers
 `null` by default, and the check stays as silent about a renamed id as it was before for a BPMS
-whose adapter does not implement it.
+whose adapter does not implement it. That silence is the rule rather than an accident: a check
+against a BPMN model reads what the BPMS holds for the ids the application declares wherever the
+BPMS can be asked, and where it cannot, the check says nothing instead of refusing - see decision
+38 in the repository's DECISIONS.md.
 
 **Whether the workflows under the old id are SERVED is the adapter's business**, and how far each
 one reaches is written in its own upgrade notes. What the platform contributes is the question they

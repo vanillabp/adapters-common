@@ -322,6 +322,13 @@ while wiring, searching by the id you would have deployed it under (your prefix,
 `null` where your BPMS cannot be asked about the versions of a process - the default. Where you
 answer `null`, nothing changes for your adapter.
 
+The same boundary governs every check your adapter makes against a BPMN model: its verdict must
+not depend on which application version deployed the model it judges. Read what your BPMS holds
+for the ids the application declares wherever it can be asked, and where it cannot, say nothing
+rather than refuse - decision 38 of the platform's DECISIONS.md carries the rule, including its
+mirror image: a refusal judges the model being deployed, while a model your BPMS already holds
+is only being read and is answered with a warning at worst.
+
 Serving those workflows is a second matter, and that one IS yours.
 `taskWiringOfProcessesNobodyDeployed(module)` on `WorkflowTaskWiring` names the BPMN processes the
 application declares without a model, together with what its `@WorkflowTask` methods serve for

@@ -957,3 +957,31 @@ attribute of the aggregate may simply be a variable the model provides.
 
 `AggregateSyncSupportTest` holds the five answers and the refusals, `WorkflowTaskRegistryTest` the boundary
 around the first segment.
+
+### 38. A check judges a model without asking which application version deployed it
+
+For every check VanillaBP makes against a BPMN model it must not matter whether the model comes
+from the current deployment or was already in the BPMS. A check may say yes or no, and it may say
+that its BPMS cannot tell. What it may not do is answer no because it read the wrong set of
+models: after a rename the answer often lives only in a model an earlier application version
+deployed, and a verdict formed over the current deployment alone judges the application by
+what it happens to have redeployed.
+
+Two rules follow, and the first outranks everything else. A check which cannot see every model
+that could carry its answer stays SILENT, never refuses: a blind check costs a warning nobody
+got, a wrong one ends a call the application made correctly. And where the BPMS can be asked,
+the check reads what the BPMS holds for the ids the application declares - through one picture
+per adapter rather than one query per check, so "cannot tell" is decided once and answered as a
+value instead of being encoded as an absence. Reading models out of a BPMS is the adapter's
+work; what the core contributes is which ids are declared, and where a core check needs a held
+model it asks through the version catalog it already has.
+
+The mirror image binds the deployment-time refusals: a refusal judges the model being DEPLOYED.
+A model the BPMS already holds is only being read on behalf of a check, nobody can change it any
+more, and what it carries and VanillaBP cannot read is a warning naming the version - never the
+end of a boot.
+
+The adapters carry the consequences in their own decision logs and cite this entry as the rule.
+The startup diagnostics' `null` defaults (`processVersionCatalogOf` and its siblings) stay as
+they are: `null` means "this BPMS cannot be asked", and every check reading the picture then
+stays silent, which is the first rule applied one level up.

@@ -103,7 +103,7 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
    * The <code>&#64;WorkflowStartedByBpms</code> methods of the same workflow service
    * classes - what a workflow started by the BPMS itself needs.
    */
-  private final BpmsInitiatedStarts bpmsInitiatedStarts = new BpmsInitiatedStarts(processVersions);
+  private final BpmsInitiatedStarts bpmsInitiatedStarts = new BpmsInitiatedStarts(processVersions, this);
 
   /**
    * The <code>&#64;WorkflowEnded</code> methods of the same workflow service classes.
