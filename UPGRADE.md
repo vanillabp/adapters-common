@@ -2481,6 +2481,10 @@ require `spring-boot-data-mongodb-test` — not needed so far.)
   cannot say", which switches the check off for that adapter.
 - `ProcessVersionCatalog#activeInstanceCountOf(...)` counts the workflows still running on a
   version; `null` again means "cannot say".
+- `ProcessVersionCatalog#concurrentTokenElementsOfVersion(workflowModuleId, bpmnProcessId,
+  version)` names the elements of a held version which can put a second token into one of its
+  workflows, the same walk `reportConcurrentTokenElements` reports for the model of this boot. It
+  is asked only about a version workflows still run on; `null` means "cannot say".
 - `ProcessVersionCatalog#startEventsOfVersion(workflowModuleId, bpmnProcessId, version)` reads the
   start events the BPMS fires on its own in a version it still holds. It is what judges the
   `@WorkflowStartedByBpms` methods kept for a BPMN process id the application declares without

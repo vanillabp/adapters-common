@@ -120,6 +120,39 @@ public interface ProcessVersionCatalog {
   }
 
   /**
+   * The elements of ONE deployed version which can put a SECOND token into a running
+   * workflow - a non-interrupting boundary event, a parallel or inclusive gateway forking
+   * into several flows, a parallel multi-instance activity, a non-interrupting event
+   * subprocess. The same walk an adapter runs while wiring for
+   * {@link io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring#reportConcurrentTokenElements},
+   * run over a model the BPMS still holds.
+   * <p>
+   * The versions which run longest are the ones a check over this boot's model never sees:
+   * an older version with a parallel gateway the new model dropped keeps its workflows for
+   * as long as they take, and two branches writing one workflow aggregate lose updates there
+   * exactly as they would in the model just deployed. The core asks about a version only
+   * where workflows still run on it, so a version nobody is on costs no model read.
+   * <p>
+   * An adapter which cannot read a held model returns <code>null</code>, and nothing is
+   * guessed from the absence. An adapter which read the model and found no such element
+   * returns an empty collection.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version identifier the BPMS reported
+   * @return The IDs of the elements producing a second token in that version, or
+   *         <code>null</code> if this BPMS cannot say
+   */
+  default java.util.Collection<String> concurrentTokenElementsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return null;
+
+  }
+
+  /**
    * How many workflows still run on ONE deployed version - what decides whether an
    * unserved task definition of that version is a warning or a defect, and whether
    * outfading it (<code>outfaded-versions</code>) leaves workflows behind.

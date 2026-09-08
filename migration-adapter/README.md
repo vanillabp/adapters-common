@@ -2459,12 +2459,14 @@ module was deployed, next to the version-tag resolution in
 The split follows the rule of this project: reading a model is BPMS-specific, deciding what
 it means is not.
 
-- The adapter answers two optional questions of `ProcessVersionCatalog`:
+- The adapter answers the optional questions of `ProcessVersionCatalog`:
   `tasksOfVersion` reads the model the BPMS still holds and builds the same `BpmnTaskSpec`
   list `wireBpmn` builds (both adapters extract it once and use it for both directions, so
-  the two cannot drift), and `activeInstanceCountOf` counts the workflows of that version.
-  A BPMS which cannot answer returns `null`, which switches the respective half off instead
-  of inventing an answer.
+  the two cannot drift), `activeInstanceCountOf` counts the workflows of that version, and
+  `concurrentTokenElementsOfVersion` names the elements of that model which can put a second
+  token into one of them - the same walk `reportConcurrentTokenElements` reports for the
+  model of this boot. A BPMS which cannot answer returns `null`, which switches the
+  respective half off instead of inventing an answer.
 - The adapter also reports what it deployed, through
   `WorkflowTaskInvoker#registerDeployedVersion`. That is the border between "the model this
   boot brought" and the older ones, and it is what makes fading out the deployed version a
@@ -2620,6 +2622,17 @@ The core answers the part it owns, and only that part:
   of the annotation so JPA and Spring Data are covered without a dependency on either, and
   warns once per BPMN process where there is none. An aggregate with a version attribute stays
   quiet, because then the collision is the exception above instead of a lost write.
+- The hint reads the versions the BPMS still HOLDS as well. An older version with a parallel
+  gateway the newest model dropped keeps forking every workflow started before it, and those
+  are the workflows which run longest, so a hint drawn from this boot's model alone misses the
+  case which lasts. `DeployedProcessVersionsCheck` asks
+  `ProcessVersionCatalog#concurrentTokenElementsOfVersion` for every older version workflows
+  still run on - a version nobody is on can lose nobody's update and is not even read - and
+  hands what it found to the same check, which names the versions carrying the elements. It
+  stays ONE warning per BPMN process: the message is about an aggregate which cannot survive
+  two writers, and saying it once per version an application ever deployed would bury it. The
+  deployed model speaks first where both would speak, because it is the one a developer can
+  still change. `ConcurrentTokensOfHeldVersionsTest` holds all of it.
 
 `AggregateWriteConflictTest` holds the classification and the report
 (`optimisticLockingIsRecognizedByName`, `conflictIsReportedAndPropagated`,

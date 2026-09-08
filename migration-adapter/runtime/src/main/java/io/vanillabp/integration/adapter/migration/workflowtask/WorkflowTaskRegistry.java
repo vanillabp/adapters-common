@@ -204,7 +204,7 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
     this.properties = properties;
     this.outfadedVersions = new OutfadedProcessVersions(properties);
     this.deployedVersionsCheck = new DeployedProcessVersionsCheck(
-        processVersions, outfadedVersions, this::tasksNotServedInVersion, this::handlersNotServingAnyVersion, this);
+        processVersions, outfadedVersions, this::tasksNotServedInVersion, this::handlersNotServingAnyVersion, this, this::reportConcurrentTokenElementsOfHeldVersions);
     this.rollbackRuleRemedies = transactionAnnotations
         .stream()
         .filter(TransactionAnnotationSpec::honored)
@@ -453,6 +453,34 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
             bpmnProcessId,
             entry.processService.getWorkflowAggregateClass(),
             elementIds);
+
+  }
+
+  /**
+   * The same for the versions a BPMS still holds with workflows running on them, read by the
+   * startup check for old process versions - the elements of an older model reach an aggregate
+   * exactly as the elements of the deployed one do, and those workflows are the ones which run
+   * longest.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The plain BPMN process ID
+   * @param elementIdsByVersion The elements producing a second token, per version identifier
+   */
+  private void reportConcurrentTokenElementsOfHeldVersions(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final Map<String, Collection<String>> elementIdsByVersion) {
+
+    final var entry = entries.get(new RegistryKey(workflowModuleId, bpmnProcessId));
+    if ((entry == null) || (entry.processService == null)) {
+      return;
+    }
+    concurrentTokenCheck
+        .reportConcurrentTokenElementsOfHeldVersions(
+            workflowModuleId,
+            bpmnProcessId,
+            entry.processService.getWorkflowAggregateClass(),
+            elementIdsByVersion);
 
   }
 
