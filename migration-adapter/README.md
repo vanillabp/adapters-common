@@ -749,6 +749,19 @@ reached the task.
    name the file each BPMN process came from and that map belongs to the deployment as a
    whole.
 
+   That report is also where a platform may add a sentence of its own, through
+   `UnclaimedBpmnProcessHints` - one question, one answer, handed to `DeploymentService`
+   like `workflowTaskWiring` is. The Spring Boot integration implements it and Quarkus
+   does not, because the answer differs per platform while the report does not: on Spring
+   Boot a class carrying `@WorkflowService` which nobody made a bean of is invisible to the
+   discovery (decision 21 of `DECISIONS.md`) and only reading class resources can name it,
+   which is Spring's work and must not enter the core; on Quarkus the same case fails the
+   BUILD, because the build knows its bean set. The hint is asked ONLY where a process is
+   actually being reported, so a healthy boot pays nothing, and its lines go inside the
+   module's existing WARN block rather than into a warning of their own - one report per
+   workflow module, not two which have to be read together. An implementation which throws
+   is ignored: a report must not turn a warning into a failed boot.
+
    The three per-module calls follow, in an order which matters. Every adapter of the
    module is asked first, through
    `registerVersionsOfProcessesNobodyDeployed(module, adapter, ...)` and the adapter's

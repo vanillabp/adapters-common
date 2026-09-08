@@ -152,6 +152,21 @@ built, primary and secondary alike; `PhaseTwoRouter` gets them from the auto-con
 A setter rather than another constructor parameter: the metrics exist once per application
 while process services exist per BPMN process, and that constructor is long enough.
 
+`WorkflowServicesWhichAreNoBeans` is the Spring half of the report about a BPMN process nothing
+claims (`UnclaimedBpmnProcessHints` in the core). It reads the class resources of the workflow
+module being reported through a `PathMatchingResourcePatternResolver` and a `MetadataReaderFactory`,
+so no candidate class is loaded to answer a question about it, and names every class which carries
+`@WorkflowService` for one of the reported processes without being a bean. Two halves narrow it, and
+both are needed: the process has to be one of the reported ones, and the class' classpath root has
+to belong to the module being reported, because otherwise a class another profile brings for a
+different module fires on every boot. The whole classpath is read only where the module's own root
+yielded nothing, since the workflow services of the global module live in a root with no marker file
+at all, and a class found that way is kept only where its root carries no descriptor either. The
+price is the measurement of decision 21 - 42 816 class resources, 15.9 of 24.4 seconds under
+`spring-boot:run` - paid once, on a boot which is already reporting a problem;
+`WorkflowServiceDiscoveryTest#theBootReadsNoClassResourcesToFindTheWorkflowServices` holds that a
+healthy boot reads nothing at all.
+
 The same registrar hands the bean the process services of every id its workflow service classes
 declare (`ProcessServiceSpringBean#getProcessServicesOfDeclaredIds`), and that list is what the
 startup validations walk - `vanillaBpProcessServiceStartupValidation` in the auto-configuration
