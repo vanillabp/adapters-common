@@ -357,10 +357,16 @@ public interface WorkflowTaskWiring {
 
   /**
    * Resolves the version tags the annotations of the given workflow module name, using
-   * the catalogs registered by {@link #registerProcessVersions}. Called by an adapter
-   * at the END of <code>deployResources</code>, so the version deployed by this very
-   * boot is part of the answer, and version specifications naming a tag are ambiguous
-   * or unknown at STARTUP instead of at the first task delivery.
+   * the catalogs registered by {@link #registerProcessVersions}. Called by the CORE
+   * once per workflow module, after the module finished deploying and after the
+   * catalogs of the ids nothing was deployed under arrived
+   * ({@link #registerVersionsOfProcessesNobodyDeployed}) - so the version deployed by
+   * this very boot AND every version tag of a renamed process' old id are part of the
+   * answer, and version specifications naming a tag are ambiguous or unknown at
+   * STARTUP instead of at the first task delivery. An adapter must NOT call this: an
+   * adapter calling it at the end of its own <code>deployResources</code> resolves the
+   * tags of the declared-only ids against nothing, because those catalogs arrive
+   * later.
    *
    * @param workflowModuleId The workflow module ID
    * @throws IllegalStateException If two methods turn out to serve the same BPMN

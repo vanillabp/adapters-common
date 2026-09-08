@@ -812,7 +812,7 @@ public class ProcessVersionMatchingTest {
         1,
         messages
             .stream()
-            .filter(message -> message.contains("no BPMS of this application reports"))
+            .filter(message -> message.contains("no adapter of this application can be asked"))
             .count(),
         "the same unknown version is reported once, not per task");
 

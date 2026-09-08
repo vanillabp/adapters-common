@@ -56,10 +56,20 @@ public class BpmsInitiatedStarts {
    */
   private final io.vanillabp.integration.adapter.migration.workflowtask.ProcessVersions processVersions;
 
+  /**
+   * Which ids the application declares without a deployment - owned by the registry as
+   * well. For such an id every version a BPMS holds is an older one, and the version
+   * exemption below has to read it the way its twin in the registry does
+   * ({@code WorkflowTaskRegistry#servesOnlyOlderVersions}).
+   */
+  private final io.vanillabp.integration.adapter.migration.workflowtask.DeclaredBpmnProcesses declaredProcesses;
+
   public BpmsInitiatedStarts(
-      final io.vanillabp.integration.adapter.migration.workflowtask.ProcessVersions processVersions) {
+      final io.vanillabp.integration.adapter.migration.workflowtask.ProcessVersions processVersions,
+      final io.vanillabp.integration.adapter.migration.workflowtask.DeclaredBpmnProcesses declaredProcesses) {
 
     this.processVersions = processVersions;
+    this.declaredProcesses = declaredProcesses;
 
   }
 
@@ -295,12 +305,45 @@ public class BpmsInitiatedStarts {
   /**
    * Whether the method exists for versions OLDER than the one this boot deployed
    * - it then names an element of a model which is not the deployed one.
+   * <p>
+   * A BPMN process id the application declares WITHOUT bringing a model - the id a
+   * renamed process left behind - is the same situation with a different boundary:
+   * this boot deployed no version of it at all, so every version the BPMS holds is
+   * what a method serving the id is kept for. The registry's twin of this method
+   * ({@code WorkflowTaskRegistry#servesOnlyOlderVersions}) grew this branch first,
+   * and without it here a method matching a held version of such an id would be
+   * validated against the start events of a model which does not exist.
    */
   private boolean servesOnlyOlderVersions(
       final String workflowModuleId,
       final String bpmnProcessId,
       final BpmsInitiatedStartHandler handler) {
 
+    final var resolver = processVersions.resolverFor(workflowModuleId, bpmnProcessId);
+    if ((declaredProcesses != null) && declaredProcesses.isDeclaredWithoutDeployment(workflowModuleId, bpmnProcessId)) {
+      final var heldVersions = processVersions
+          .registeredCatalogs(workflowModuleId, bpmnProcessId)
+          .stream()
+          .map(registered -> registered
+              .catalog()
+              .deployedVersionsOf(workflowModuleId, bpmnProcessId))
+          .filter(java.util.Objects::nonNull)
+          .flatMap(List::stream)
+          .map(io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion::version)
+          .filter(java.util.Objects::nonNull)
+          .distinct()
+          .toList();
+      if (!heldVersions.isEmpty()) {
+        return heldVersions
+            .stream()
+            .anyMatch(version -> handler.matchesVersion(version, resolver));
+      }
+      // nothing held and nothing to ask: unlike the registry's twin, this check may
+      // run BEFORE the task wiring settled the difference between declared and
+      // deployed - an id looking declared-only without any catalog is answered by
+      // the strict path below, so a deployed process validated first stays as
+      // strictly judged as it was
+    }
     final var deployedVersions = processVersions
         .registeredCatalogs(workflowModuleId, bpmnProcessId)
         .stream()
@@ -311,7 +354,6 @@ public class BpmsInitiatedStarts {
     if (deployedVersions.isEmpty()) {
       return false;
     }
-    final var resolver = processVersions.resolverFor(workflowModuleId, bpmnProcessId);
     return deployedVersions
         .stream()
         .noneMatch(version -> handler.matchesVersion(version, resolver));

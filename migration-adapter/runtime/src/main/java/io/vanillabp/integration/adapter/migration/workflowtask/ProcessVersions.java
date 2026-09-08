@@ -285,13 +285,16 @@ public class ProcessVersions {
       return;
     }
     if (withoutCatalog) {
+      // saying "no versions are deployed" here would be wrong: the BPMS may well hold
+      // versions of this process - what is missing is an adapter able to ASK about
+      // them, which is a different defect with a different remedy
       log.warn(
           """
               The version specifications of the methods serving BPMN process '{}' of workflow \
-              module '{}' name '{}', but no BPMS of this application reports the deployed \
-              versions of its processes! Version specifications made of numbers (e.g. '1-3', \
-              '>2') work on every BPMS which reports the version of a process - version TAGS \
-              need a BPMS which can be asked about them.""",
+              module '{}' name '{}', but no adapter of this application can be asked which \
+              versions of that process its BPMS holds! Version specifications made of numbers \
+              (e.g. '1-3', '>2') work on every BPMS which reports the version of a process - \
+              version TAGS need a BPMS which can be asked about them.""",
           bpmnProcessId,
           workflowModuleId,
           versionOrVersionTag);
