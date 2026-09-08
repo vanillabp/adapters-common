@@ -63,11 +63,26 @@ selected **per workflow aggregate** (`QuarkusPhaseTwoOutboxResolver`): the most
 specific `PhaseTwoOutboxAware` bean wins; without one, the single active outbox is
 used (deactivated - `vanillabp.outbox.jdbc.enabled`/`vanillabp.outbox.mongo.enabled`
 - or unusable defaults are not considered), and with several active outboxes the
-startup fails guiding towards `PhaseTwoOutboxAware` (Quarkus has no platform-side
-knowledge of which persistence manages an aggregate). Resolution happens AT STARTUP
+platform default matching the technology which manages the aggregate is used, read
+off the persistence VanillaBP resolved for it (`QuarkusPersistenceTechnology`). Only
+where that cannot be told - the application brought the persistence itself - does the
+startup end guiding towards `PhaseTwoOutboxAware`. Resolution happens AT STARTUP
 via an inherited `StartupEvent` observer on `ProcessServiceBaseCdiBean` - a missing
 outbox fails the boot naming the remedies (`QuarkusStoreAttributionTest` for the
-resolution, `OutboxStartupValidationTest` for the boot which ends). Store names are configurable
+resolution, `OutboxStartupValidationTest` for the boot which ends).
+
+The resolver is a CDI bean of the neutral type
+`io.vanillabp.integration.adapter.migration.processservice.PhaseTwoOutboxResolver`
+(`PhaseTwoOutboxResolverProducer`, `@Unremovable`), and the process services use that
+bean rather than one of their own: an extension writing phase-two entries of its own
+into the transaction of a workflow aggregate has to reach the same store, and it
+cannot work that out itself - which default serves which technology, and whether it
+is usable, is `PlatformDefaultStore`, an interface of this module and of no SPI. The
+Spring Boot integration offers `SpringPhaseTwoOutboxResolver` as a bean for the same
+reason. An extension injecting it and getting the store of each aggregate of a
+two-persistence application is `MixedPersistenceStoreAttributionTest`.
+
+Store names are configurable
 (`vanillabp.outbox.jdbc.table`, `vanillabp.outbox.mongo.collection`); every outbox
 instance needs its OWN store (two dispatchers polling the same store would compete
 and double-dispatch).

@@ -2406,6 +2406,18 @@ the way an adapter binds the keys below its adapter id.
 An extension registers namespaced phase-two operations with its own dispatch — see
 [Operations of extensions](#operations-of-extensions).
 
+Which store such an entry belongs into is not the extension's decision. `PhaseTwoOutboxResolver`
+is a bean on both platforms, and `#resolveFor(workflowAggregateClass)` answers the same store the
+workflow's own phase-two entries go into — which is the whole point, since only an entry in the
+transaction of the aggregate is committed with it. What that store is depends on the persistence
+VanillaBP resolved for the aggregate, on `PhaseTwoOutboxAware` beans of the application and on
+whether a platform default is switched on and usable at all, so an extension picking a
+`PhaseTwoOutbox` bean itself would be right until the first application with two persistences.
+An aggregate nothing can serve is an `IllegalStateException` naming the beans found and the
+remedy, and `null` means the application has no outbox at all — `#remediesDescription()` says
+what to add for the platform in use, so the extension ends its own boot with a message a
+developer can act on.
+
 **What holds all of this.** `ExtensionHandlerTest` and
 `ExtensionElectionAndConfigurationTest` (Spring Boot, module
 `extension-integration-test`) and `ExtensionEnablementTest` (Quarkus, module

@@ -19,6 +19,7 @@ import io.vanillabp.integration.runtime.outbox.JdbcPhaseTwoOutbox;
 import io.vanillabp.integration.runtime.outbox.JdbcPhaseTwoOutboxDispatcher;
 import io.vanillabp.integration.runtime.outbox.MongoPhaseTwoOutbox;
 import io.vanillabp.integration.runtime.outbox.MongoPhaseTwoOutboxDispatcher;
+import io.vanillabp.integration.runtime.processservice.PhaseTwoOutboxResolverProducer;
 import io.vanillabp.integration.runtime.processservice.PhaseTwoRouterProducer;
 import io.vanillabp.integration.runtime.processservice.QuarkusPreCommitRegistrar;
 import io.vanillabp.integration.runtime.processservice.WorkflowAdapterCacheProducer;
@@ -159,6 +160,25 @@ public class VanillaBpBuildStepProcessor {
         .builder()
         .addBeanClass(PhaseTwoRouterProducer.class)
         .setUnremovable() // don't remove, since it is used under the hoods
+        .build();
+
+  }
+
+  /**
+   * Registers the resolver telling which phase-two outbox an aggregate's transaction
+   * reaches (via {@link PhaseTwoOutboxResolverProducer}): the process services resolve
+   * their own outbox through it, and an extension writing entries of its own injects it
+   * instead of picking an outbox bean, which it cannot judge.
+   *
+   * @return The additional {@link PhaseTwoOutboxResolverProducer} bean
+   */
+  @BuildStep
+  AdditionalBeanBuildItem buildPhaseTwoOutboxResolver() {
+
+    return AdditionalBeanBuildItem
+        .builder()
+        .addBeanClass(PhaseTwoOutboxResolverProducer.class)
+        .setUnremovable() // an extension may be the only one injecting it
         .build();
 
   }
