@@ -182,4 +182,24 @@ public class ExtensionHandlerTest {
 
   }
 
+  @Test
+  @DisplayName("The extension is told which aggregate a process works on and which processes a module has")
+  public void theExtensionReadsWhatTheRegistryKnows() {
+
+    assertEquals(
+        java.util.Optional.of(NotedAggregate.class),
+        handlers.workflowAggregateOf("extension-module", "DummyProcess"));
+    // a process whose workflow service knows nothing about this extension is answered
+    // too - the question is about the application, not about the extension's methods
+    assertEquals(
+        java.util.Optional.of(UnnotedAggregate.class),
+        handlers.workflowAggregateOf("extension-module", "UnnotedProcess"));
+    assertEquals(java.util.Optional.empty(), handlers.workflowAggregateOf("extension-module", "NobodyDeclaredThis"));
+
+    assertTrue(handlers.bpmnProcessesOf("extension-module").contains("DummyProcess"));
+    assertTrue(handlers.bpmnProcessesOf("extension-module").contains("UnnotedProcess"));
+    assertEquals(java.util.List.of(), handlers.bpmnProcessesOf("no-such-module"));
+
+  }
+
 }

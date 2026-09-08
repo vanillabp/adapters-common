@@ -142,6 +142,32 @@ public class QuarkusTransactionRunnerResolverTest {
   }
 
   @Test
+  @DisplayName("The platform's own runner is a bean, and is not mistaken for one of the application")
+  public void thePlatformsOwnBeanIsNotTheApplicationsAnswer() {
+
+    // TransactionRunnerProducer produces it, so it shows up among the runner beans of
+    // the application. Taking it for one would report the coverage of an aggregate as
+    // the application's business, and the MongoDB verdict below would never be written
+    final var testee = resolver(List.of(), List.of(PLATFORM_RUNNER));
+
+    assertSame(PLATFORM_RUNNER, testee.resolveFor(OrderAggregate.class));
+    assertEquals("the JTA transaction of Quarkus", testee.describeResolutionFor(OrderAggregate.class));
+
+  }
+
+  @Test
+  @DisplayName("A runner of the application next to the platform's own bean still wins")
+  public void anApplicationRunnerNextToThePlatformsBeanWins() {
+
+    final var applicationRunner = new UnitOfWork();
+
+    final var testee = resolver(List.of(), List.of(PLATFORM_RUNNER, applicationRunner));
+
+    assertSame(applicationRunner, testee.resolveFor(OrderAggregate.class));
+
+  }
+
+  @Test
   @DisplayName("A runner bean is named by the class it was declared as, not by its proxy")
   public void plainRunnerBeanIsNamedByItsDeclaredClass() {
 

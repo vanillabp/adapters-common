@@ -783,6 +783,105 @@ public class MigrationAdapterPropertiesTest {
 
   }
 
+  /**
+   * Which adapter ids one adapter TYPE serves - the question a platform answers to
+   * register one set of beans per configured engine, and an extension bridging to a
+   * BPMS to register one bridge per engine.
+   * <p>
+   * The cases are the ones {@code AdapterBeanRegistrarSupportTest} pinned on Spring
+   * Boot, asked of the core method both platforms now delegate to. What they are about
+   * is the two halves of the convention: a section without a {@code type} takes its id
+   * as the type, and an id named in {@code prioritized-adapters} which IS an adapter
+   * type needs no section at all - the migration setup, where dropping the second half
+   * left the old adapter without beans.
+   */
+  @org.junit.jupiter.api.Nested
+  @org.junit.jupiter.api.DisplayName("The adapter ids of one type")
+  class AdapterIdsOfType {
+
+    private MigrationAdapterProperties configured(
+        final List<String> prioritizedAdapters,
+        final Map<String, AdapterConfigProperties> adapters) {
+
+      final var properties = new MigrationAdapterProperties();
+      properties.setPrioritizedAdapters(prioritizedAdapters);
+      properties.setAdapters(adapters);
+      return properties;
+
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("A section carrying nothing but the adapter's own keys takes its id as the type")
+    public void aSectionWithoutATypeIsTheType() {
+
+      // the section bound nothing the core model knows, so there is no entry for it -
+      // which must not decide whether the id exists
+      assertEquals(
+          List.of("camunda7"),
+          configured(List.of("camunda7"), Map.of()).adapterIdsOfType("camunda7"));
+
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("An id named in prioritized-adapters needs no section, even next to another adapter")
+    public void aPrioritizedIdNeedsNoSection() {
+
+      final var properties = configured(
+          List.of("camunda8", "camunda7"),
+          Map.of("camunda8", AdapterConfigProperties.ofType("camunda8")));
+
+      assertEquals(List.of("camunda7"), properties.adapterIdsOfType("camunda7"));
+      assertEquals(List.of("camunda8"), properties.adapterIdsOfType("camunda8"));
+
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("An id named like this type but declaring another one belongs to that other adapter")
+    public void anIdNamedLikeTheTypeMayDeclareAnother() {
+
+      final var properties = configured(
+          List.of("camunda7"),
+          Map.of("camunda7", AdapterConfigProperties.ofType("camunda8")));
+
+      assertEquals(List.of(), properties.adapterIdsOfType("camunda7"));
+      assertEquals(List.of("camunda7"), properties.adapterIdsOfType("camunda8"));
+
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("A custom id naming this type is served, and the type's own name next to it")
+    public void aCustomIdNamingTheTypeIsServed() {
+
+      final var properties = configured(
+          List.of("camunda7", "old-engine"),
+          Map.of("old-engine", AdapterConfigProperties.ofType("camunda7")));
+
+      assertEquals(List.of("camunda7", "old-engine"), properties.adapterIdsOfType("camunda7"));
+
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("Nothing configured at all: the single adapter dependency IS the configuration")
+    public void withoutAnyConfigurationTheTypeIsTheId() {
+
+      assertEquals(List.of("camunda7"), configured(List.of(), Map.of()).adapterIdsOfType("camunda7"));
+
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("With another adapter configured, an unnamed type gets nothing")
+    public void aTypeNobodyNamedGetsNothing() {
+
+      final var properties = configured(
+          List.of("camunda8"),
+          Map.of("camunda8", AdapterConfigProperties.ofType("camunda8")));
+
+      assertEquals(List.of(), properties.adapterIdsOfType("camunda7"));
+
+    }
+
+  }
+
   private static AdapterConfigProperties adapterUsingPrefixes() {
 
     final var adapter = AdapterConfigProperties.ofType("camunda8");

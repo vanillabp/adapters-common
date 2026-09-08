@@ -84,21 +84,13 @@ public class ApplicationOwnedStoresTest {
   @Any
   Instance<List<AdapterDeploymentService<Object, Object>>> deploymentServices;
 
+  /**
+   * The resolver the process services of this application use, injected rather than
+   * rebuilt: it is built once, by the platform's producer, and only that instance knows
+   * which of the runner beans is the platform's own.
+   */
   @Inject
-  @Any
-  Instance<io.vanillabp.integration.spi.TransactionRunnerAware<?>> transactionRunnerAwares;
-
-  @Inject
-  @Any
-  Instance<io.vanillabp.integration.spi.TransactionRunner> transactionRunners;
-
-  @Inject
-  @Any
-  Instance<io.vanillabp.integration.spi.AggregatePersistenceAware<?>> aggregatePersistences;
-
-  /** Unsatisfied here: this application has no MongoDB client extension. */
-  @Inject
-  Instance<io.vanillabp.integration.runtime.processservice.MongoDeploymentProbe> mongoDeploymentProbes;
+  io.vanillabp.integration.adapter.migration.processservice.TransactionRunnerResolver transactionRunnerResolver;
 
   private DummyDeploymentService dummyAdapter() {
 
@@ -199,19 +191,17 @@ public class ApplicationOwnedStoresTest {
   @DisplayName("The startup line names the classes of the application, not the container's proxies")
   public void theStartupLineNamesTheApplicationsClasses() {
 
-    // the resolver of the platform, wired with the very beans of this application: what it
+    // the resolver of the platform, holding the very beans of this application: what it
     // says about them is what the INFO line carries
-    final var resolver = new io.vanillabp.integration.runtime.processservice.QuarkusTransactionRunnerResolver(
-        transactionRunnerAwares, transactionRunners, aggregatePersistences, mongoDeploymentProbes, runner);
-
-    final var aware = resolver.describeResolutionFor(AppTxAggregate.class);
+    final var aware = transactionRunnerResolver.describeResolutionFor(AppTxAggregate.class);
     assertEquals(
         "the TransactionRunnerAware bean '%s' of the application".formatted(AppTxTransactions.class.getName()),
         aware,
         aware);
 
     // an aggregate no aware bean covers falls to the plain runner bean - named the same way
-    final var plainBean = resolver.describeResolutionFor(Object.class);
+    // the platform's own runner is a bean too, and it is not this application's answer
+    final var plainBean = transactionRunnerResolver.describeResolutionFor(Object.class);
     assertEquals(
         "the TransactionRunner bean '%s' of the application".formatted(AppTxTransactionRunner.class.getName()),
         plainBean,

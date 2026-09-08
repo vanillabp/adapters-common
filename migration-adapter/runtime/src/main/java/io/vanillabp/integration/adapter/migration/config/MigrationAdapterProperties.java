@@ -8,6 +8,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -167,6 +168,75 @@ public class MigrationAdapterProperties extends AdaptersConfigurationProperties 
             entry -> entry.getValue().getType() != null
                 ? entry.getValue().getType()
                 : entry.getKey()));
+
+  }
+
+  /**
+   * The adapter ids one adapter TYPE serves, in stable (sorted) order - what a platform
+   * has to know to register one set of beans per configured adapter id, and what an
+   * extension bridging to a BPMS has to know to register one bridge per engine of that
+   * BPMS. Several ids of one type are the migration scenario.
+   * <p>
+   * Three things decide it, and leaving one out loses adapters silently:
+   * <ol>
+   * <li>every section of {@link #getAdapters()} whose (defaulted) type is this one -
+   * {@link #adapterTypes()};</li>
+   * <li>every id in {@code prioritized-adapters} which IS this type and carries no
+   * section, or a section not contradicting it: convention over configuration says such
+   * an id needs no section of its own, and this method is asked on properties which were
+   * bound but not yet {@link #normalize(ClasspathFacts) normalized} as well;</li>
+   * <li>nothing configured at all: the single adapter dependency IS the configuration,
+   * and the id the core derives is the type.</li>
+   * </ol>
+   * The second rule is the one which cannot be read off the bound sections: a section may
+   * consist entirely of keys this model does not know - an adapter's own
+   * {@code rest-address} or {@code webapps} - and then no entry binds for it at all. A
+   * derivation running only where NOTHING bound is therefore not enough, which is what a
+   * migration setup showed: the new BPMS configured, the old one merely named in the
+   * order, and the old adapter's beans gone as soon as any section carried one core key.
+   * <p>
+   * Why this lives here rather than per platform is decision 39 in the repository's
+   * DECISIONS.md.
+   *
+   * @param adapterType The adapter's type, e.g. <code>camunda7</code>
+   * @return The adapter ids of that type, sorted, possibly none
+   */
+  public List<String> adapterIdsOfType(
+      final String adapterType) {
+
+    final var ids = new TreeSet<String>();
+
+    adapterTypes()
+        .entrySet()
+        .stream()
+        .filter(entry -> adapterType.equals(entry.getValue()))
+        .map(Map.Entry::getKey)
+        .forEach(ids::add);
+
+    getPrioritizedAdapters()
+        .stream()
+        .filter(adapterType::equals)
+        // an id which happens to be named like this type but says it is another one
+        // belongs to that other adapter, whatever its name suggests
+        .filter(adapterId -> {
+          final var section = getAdapters().get(adapterId);
+          return (section == null) || (section.getType() == null) || adapterType.equals(section.getType());
+        })
+        .forEach(ids::add);
+
+    if (!ids.isEmpty()) {
+      return List.copyOf(ids);
+    }
+
+    // Nothing is configured at all. The caller cannot see the OTHER adapter types on the
+    // classpath, and does not have to: it asks for its own type's ids, and the id the
+    // core would derive IS the type. Where the derivation does not apply - several
+    // adapter types and no order configured - the validation ends the boot anyway and
+    // whatever was registered for this id is never used.
+    if (getAdapters().isEmpty() && getPrioritizedAdapters().isEmpty()) {
+      return List.of(adapterType);
+    }
+    return List.of();
 
   }
 

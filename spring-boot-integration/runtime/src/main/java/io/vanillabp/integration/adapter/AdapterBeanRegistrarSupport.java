@@ -1,6 +1,5 @@
 package io.vanillabp.integration.adapter;
 
-import java.util.Map;
 import java.util.function.Consumer;
 
 import org.springframework.boot.context.properties.bind.Bindable;
@@ -59,6 +58,12 @@ public final class AdapterBeanRegistrarSupport {
    * Invokes the given consumer for each adapter id configured in
    * <code>vanillabp.adapters.&lt;id&gt;.*</code> whose (defaulted) type equals the
    * given adapter type, in stable (sorted) order.
+   * <p>
+   * WHICH ids those are is
+   * {@link MigrationAdapterProperties#adapterIdsOfType(String)} - the rule lives in the
+   * core because Quarkus has to answer the same question, and because an extension
+   * bridging to a BPMS asks it about the same configuration. What is left here is
+   * binding the tree off the environment, which is the part only Spring Boot can do.
    *
    * @param environment The Spring environment to bind the core properties from
    * @param adapterType The adapter's type
@@ -69,56 +74,12 @@ public final class AdapterBeanRegistrarSupport {
       final String adapterType,
       final Consumer<String> adapterIdConsumer) {
 
-    final var properties = Binder
+    Binder
         .get(environment)
         .bind(MigrationAdapterProperties.PREFIX, Bindable.of(VanillaBpConfigurationProperties.class))
-        .orElseGet(VanillaBpConfigurationProperties::new);
-
-    final var ids = new java.util.TreeSet<String>();
-
-    properties
-        .adapterTypes()
-        .entrySet()
-        .stream()
-        .filter(entry -> adapterType.equals(entry.getValue()))
-        .map(Map.Entry::getKey)
-        .forEach(ids::add);
-
-    // convention over configuration: an id named in 'prioritized-adapters'
-    // which IS an adapter type needs no section of its own, and the core derives one for
-    // it. The registrar has to derive the same ids, and it cannot read that from the
-    // sections it sees: a section may consist entirely of keys the CORE model does not
-    // know (an adapter's own 'rest-address', 'webapps', 'database-schema-update'), and
-    // the configuration binding then produces no map entry for it at all. A derivation
-    // running only where NOTHING binds onto the core model is not enough, because a
-    // migration setup - the new BPMS configured, the old one merely named in the order -
-    // lost the old adapter's beans as soon as any section carried one core key.
-    properties
-        .getPrioritizedAdapters()
-        .stream()
-        .filter(adapterType::equals)
-        // an id which happens to be named like this type but says it is another one
-        // belongs to that other adapter, whatever its name suggests
-        .filter(adapterId -> {
-          final var section = properties.getAdapters().get(adapterId);
-          return (section == null) || (section.getType() == null) || adapterType.equals(section.getType());
-        })
-        .forEach(ids::add);
-
-    if (!ids.isEmpty()) {
-      ids.forEach(adapterIdConsumer);
-      return;
-    }
-
-    // nothing is configured at all: the single adapter dependency IS the configuration,
-    // and the core derives the id from the classpath. The registrar cannot see the OTHER
-    // adapter types on the classpath, but it does not have to: it registers its own
-    // type's beans for the id the core would derive (the id IS the type). Where the
-    // derivation does not apply (several adapter types and no order configured), the
-    // core's validation fails the boot anyway and the extra beans are never used.
-    if (properties.getAdapters().isEmpty() && properties.getPrioritizedAdapters().isEmpty()) {
-      adapterIdConsumer.accept(adapterType);
-    }
+        .orElseGet(VanillaBpConfigurationProperties::new)
+        .adapterIdsOfType(adapterType)
+        .forEach(adapterIdConsumer);
 
   }
 

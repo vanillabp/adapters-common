@@ -5,6 +5,32 @@
 The VanillaBP Quarkus extension's runtime module. It is responsible for bridging to the
 [VanillaBP migration adapter](../../migration-adapter) at runtime.
 
+## The transaction VanillaBP writes in
+
+`TransactionRunnerProducer` builds both halves of it, once for the application, and produces them
+as CDI beans: the platform's own `QuarkusTransactionRunner` (JTA plus the CDI request context
+Panache and Hibernate need on the threads an adapter delivers on) and the
+`TransactionRunnerResolver` saying which runner a given workflow aggregate is written through. The
+process services, `QuarkusPreCommitRegistrar`, the phase-two router and the workflow-task registry
+use those beans rather than building runners of their own, so there is one answer instead of four
+which drift.
+
+An extension writing something of its own next to a workflow aggregate injects the resolver and
+asks it per aggregate class. It must not decide that itself: the application may have contributed a
+`TransactionRunnerAware` bean for the aggregate or a runner serving every aggregate, and a runner
+of the extension's own would commit its entry separately from the workflow it belongs to. The
+Spring Boot integration offers both as beans for the same reason
+(`vanillaBpPlatformTransactionRunner`, `vanillaBpTransactionRunnerResolver`). An extension in
+miniature injecting them, and the guiding refusal of `inCurrent` outside a transaction, is
+`ExtensionEnablementTest`.
+
+The platform's runner is produced under its own class, `QuarkusTransactionRunner`, not under the
+SPI type: an application may contribute a `TransactionRunner` bean of its own, and every injection
+point inside the platform would be ambiguous then. It is injectable as `TransactionRunner` all the
+same, which is what an extension without an aggregate at hand asks for, and the resolver takes it
+out of its own second step by identity so a coverage verdict is not silenced by the platform's own
+bean.
+
 ## Running a check right before the commit
 
 A phase-one check of a remote BPMS must not advance the process, but it may ASK - whether the

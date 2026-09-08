@@ -6,7 +6,6 @@ import io.vanillabp.integration.spi.PhaseOperationRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 
 /**
  * Produces the core-owned {@link PhaseTwoRouter} as CDI bean: the generated
@@ -24,7 +23,8 @@ import jakarta.transaction.TransactionSynchronizationRegistry;
 public class PhaseTwoRouterProducer {
 
   /**
-   * @param transactionRegistry Provides the transaction a dispatch runs in
+   * @param platformTransactionRunner The transaction a dispatch runs in - the
+   *          platform's own runner, the bean of {@link TransactionRunnerProducer}
    * @param metrics What dispatches are counted into; unsatisfied where the
    *          application uses no Micrometer extension
    * @return The router
@@ -32,10 +32,10 @@ public class PhaseTwoRouterProducer {
   @Produces
   @Singleton
   public PhaseTwoRouter phaseTwoRouter(
-      final TransactionSynchronizationRegistry transactionRegistry,
+      final QuarkusTransactionRunner platformTransactionRunner,
       final jakarta.enterprise.inject.Instance<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics) {
 
-    final var router = new PhaseTwoRouter(new QuarkusTransactionRunner(transactionRegistry));
+    final var router = new PhaseTwoRouter(platformTransactionRunner);
     router.setMetrics(vanillaBpMetricsOf(metrics));
     return router;
 

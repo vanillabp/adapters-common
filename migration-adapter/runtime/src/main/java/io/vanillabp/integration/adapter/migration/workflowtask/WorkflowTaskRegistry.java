@@ -356,7 +356,8 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
     if (!classesLookedOverForInvisibleHandlers.add(workflowServiceClass)) {
       return;
     }
-    final var report = HandlerMethodsNobodySees.reportFor(workflowServiceClass);
+    final var report = HandlerMethodsNobodySees
+        .reportFor(workflowServiceClass, HandlerMethodsNobodySees.CORE_HANDLER_ANNOTATIONS);
     if (report != null) {
       log.warn(report);
     }

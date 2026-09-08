@@ -66,6 +66,12 @@ public class ExtensionHandlerRegistryTest {
 
     String element() default "";
 
+    /**
+     * An attribute the contract cannot describe: what it means is the extension's
+     * business, and so is which values it serves.
+     */
+    String version() default "";
+
   }
 
   /**
@@ -142,6 +148,58 @@ public class ExtensionHandlerRegistryTest {
         final Payload payload) {
 
       return "every/%s".formatted(payload.text());
+
+    }
+
+  }
+
+  /**
+   * A second workflow service, for a second BPMN process of the same workflow module.
+   */
+  public static class SecondProcessService {
+
+    @Note(element = "TheTask")
+    public String noteOfTheTask(
+        final Payload payload) {
+
+      return "second-process";
+
+    }
+
+  }
+
+  public static class VersionedNotesService {
+
+    @Note(element = "TheTask", version = "2")
+    public String noteOfTheTask(
+        final Payload payload) {
+
+      return "versioned";
+
+    }
+
+  }
+
+  public static class TwiceAnnotatedService {
+
+    @Note(element = "TheTask")
+    @Note(element = "TheOtherTask")
+    public String noteOfBoth(
+        final Payload payload) {
+
+      return "both";
+
+    }
+
+  }
+
+  public static class HiddenNoteService {
+
+    @Note(element = "TheTask")
+    protected String tooWellHidden(
+        final Payload payload) {
+
+      return "nobody reaches this";
 
     }
 
@@ -755,6 +813,182 @@ public class ExtensionHandlerRegistryTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> HandlerCall.of(Note.class, MODULE, PROCESS).build());
+
+  }
+
+  @Test
+  @DisplayName("The registry says which aggregate a BPMN process works on and which processes a module has")
+  public void theRegistryAnswersWhatItKnowsAboutTheApplication() {
+
+    final var registry = new WorkflowTaskRegistry(new TransactionRunnerStub());
+    final var persistence = new InMemoryPersistence();
+    registry.getExtensionHandlers().register(noteContract());
+    registry
+        .registerWorkflowService(
+            MODULE, PROCESS, NotingService.class, NotingService::new, type -> null, processService(persistence));
+    registry
+        .registerWorkflowService(
+            MODULE,
+            "SecondProcess",
+            SecondProcessService.class,
+            SecondProcessService::new,
+            type -> null,
+            processService(persistence));
+
+    final var handlers = registry.getExtensionHandlers();
+
+    assertEquals(Optional.of(Aggregate.class), handlers.workflowAggregateOf(MODULE, PROCESS));
+    assertEquals(Optional.of(Aggregate.class), handlers.workflowAggregateOf(MODULE, "SecondProcess"));
+    assertEquals(List.of(PROCESS, "SecondProcess"), handlers.bpmnProcessesOf(MODULE));
+
+  }
+
+  @Test
+  @DisplayName("A process or a workflow module nothing declared is answered with nothing")
+  public void whatNobodyDeclaredIsAnsweredWithNothing() {
+
+    final var registry = new WorkflowTaskRegistry(new TransactionRunnerStub());
+    registry
+        .registerWorkflowService(
+            MODULE,
+            PROCESS,
+            NotingService.class,
+            NotingService::new,
+            type -> null,
+            processService(new InMemoryPersistence()));
+
+    final var handlers = registry.getExtensionHandlers();
+
+    assertEquals(Optional.empty(), handlers.workflowAggregateOf(MODULE, "NobodyDeclaredThis"));
+    assertEquals(Optional.empty(), handlers.workflowAggregateOf("other-module", PROCESS));
+    assertEquals(List.of(), handlers.bpmnProcessesOf("other-module"));
+    // the aggregate is known although this extension has no contract registered at all:
+    // the answer is about the application, not about the extension's own methods
+    assertEquals(Optional.of(Aggregate.class), handlers.workflowAggregateOf(MODULE, PROCESS));
+
+  }
+
+  @Test
+  @DisplayName("What an extension checks about its own annotation ends the boot naming class and method")
+  public void anAnnotationTheExtensionRefusesEndsTheBoot() {
+
+    final var failure = assertThrows(
+        IllegalStateException.class,
+        () -> registryWith(checkingContract(), VersionedNotesService.class, VersionedNotesService::new));
+
+    assertTrue(failure.getMessage().contains(VersionedNotesService.class.getName()), failure.getMessage());
+    assertTrue(failure.getMessage().contains("noteOfTheTask"), failure.getMessage());
+    assertTrue(failure.getMessage().contains(EXTENSION), failure.getMessage());
+    // and what the extension itself said about it
+    assertTrue(failure.getMessage().contains("version '2'"), failure.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("The check sees every occurrence of a repeatable annotation")
+  public void everyOccurrenceIsChecked() {
+
+    final var checked = new java.util.LinkedList<String>();
+    final var contract = HandlerContract
+        .of(EXTENSION, Note.class)
+        .lookupKeys(annotation -> List.of(((Note) annotation).element()))
+        .parameterBinder(parameter -> parameter.getType().equals(Payload.class)
+            ? Optional.of(HandlerContext::getPayload)
+            : Optional.empty())
+        .validatingAnnotation((
+            annotation,
+            method) -> checked
+                .add("%s#%s".formatted(((Note) annotation).element(), method.getName())))
+        .deliversReturnValue()
+        .build();
+
+    registryWith(contract, TwiceAnnotatedService.class, TwiceAnnotatedService::new);
+
+    assertEquals(List.of("TheTask#noteOfBoth", "TheOtherTask#noteOfBoth"), checked);
+
+  }
+
+  @Test
+  @DisplayName("A contract without a check is scanned as before")
+  public void aContractMayCheckNothing() {
+
+    final var fixture = fixture(NotingService.class, NotingService::new, true);
+
+    assertTrue(
+        fixture
+            .registry()
+            .getExtensionHandlers()
+            .hasHandler(Note.class, MODULE, PROCESS, List.of("TheTask")));
+
+  }
+
+  @Test
+  @DisplayName("A handler method of an extension which the scan cannot reach is reported like a @WorkflowTask one")
+  public void anInvisibleExtensionHandlerIsReported() {
+
+    final var report = io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees
+        .reportFor(HiddenNoteService.class, List.of(Note.class));
+
+    assertTrue(report.contains(HiddenNoteService.class.getName()), report);
+    assertTrue(report.contains("the @Note method"), report);
+    assertTrue(report.contains("tooWellHidden"), report);
+    assertTrue(report.contains("is protected"), report);
+    assertTrue(report.contains("Make the method public"), report);
+    // and the annotations of VanillaBP's own SPI say nothing about this class
+    assertEquals(
+        null,
+        io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees
+            .reportFor(
+                HiddenNoteService.class,
+                io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees.CORE_HANDLER_ANNOTATIONS));
+
+  }
+
+  /**
+   * A contract refusing the one attribute it cannot describe - what an extension does
+   * with a version, a template path or anything else only it understands.
+   */
+  private static HandlerContract checkingContract() {
+
+    return HandlerContract
+        .of(EXTENSION, Note.class)
+        .lookupKeys(annotation -> List.of(((Note) annotation).element()))
+        .parameterBinder(parameter -> parameter.getType().equals(Payload.class)
+            ? Optional.of(HandlerContext::getPayload)
+            : Optional.empty())
+        .validatingAnnotation((
+            annotation,
+            method) -> {
+          final var version = ((Note) annotation).version();
+          if (!version.isEmpty()) {
+            throw new IllegalArgumentException(
+                "this extension does not serve version '%s' yet - remove the attribute".formatted(version));
+          }
+        })
+        .deliversReturnValue()
+        .build();
+
+  }
+
+  /**
+   * A registry holding one contract and one workflow service, registered in that order.
+   */
+  private static WorkflowTaskRegistry registryWith(
+      final HandlerContract contract,
+      final Class<?> workflowServiceClass,
+      final Supplier<Object> workflowServiceBean) {
+
+    final var registry = new WorkflowTaskRegistry(new TransactionRunnerStub());
+    registry.getExtensionHandlers().register(contract);
+    registry
+        .registerWorkflowService(
+            MODULE,
+            PROCESS,
+            workflowServiceClass,
+            workflowServiceBean,
+            type -> null,
+            processService(new InMemoryPersistence()));
+    return registry;
 
   }
 

@@ -472,4 +472,52 @@ public class NameClashAvoidanceServiceTest {
 
   }
 
+  @Test
+  @DisplayName("Without a support at all the identifiers are the plain ones")
+  public void withoutASupportTheIdentifiersStayPlain() {
+
+    // what a caller holds where no platform registered a support: a unit test, or a
+    // component built without one around it. Writing the check per call site is how two
+    // of them end up disagreeing, and a disagreement here is a query finding nothing
+    assertEquals(PROCESS, NameClashAvoidanceSupport.scopedProcessId(null, MODULE, PROCESS, ADAPTER));
+    assertEquals("PaymentReceived", NameClashAvoidanceSupport
+        .scopedIdentifier(null, MODULE, "PaymentReceived", ADAPTER));
+    assertEquals("scoreApplicant", NameClashAvoidanceSupport
+        .scopedTaskDefinition(null, MODULE, PROCESS, "scoreApplicant", ADAPTER));
+    assertEquals(PROCESS, NameClashAvoidanceSupport.plainProcessId(null, MODULE, PROCESS, ADAPTER));
+    assertEquals("PaymentReceived", NameClashAvoidanceSupport
+        .plainIdentifier(null, MODULE, "PaymentReceived", ADAPTER));
+    assertEquals("scoreApplicant", NameClashAvoidanceSupport
+        .plainTaskDefinition(null, MODULE, PROCESS, "scoreApplicant", ADAPTER));
+
+  }
+
+  @Test
+  @DisplayName("With a support the static form answers exactly what the support does")
+  public void withASupportTheStaticFormDelegates() {
+
+    final var testee = serviceWith(NameClashAvoidance.USE_PREFIX);
+
+    assertEquals(
+        "loan-approval__RiskAssessment",
+        NameClashAvoidanceSupport.scopedProcessId(testee, MODULE, PROCESS, ADAPTER));
+    assertEquals(
+        "loan-approval__PaymentReceived",
+        NameClashAvoidanceSupport.scopedIdentifier(testee, MODULE, "PaymentReceived", ADAPTER));
+    assertEquals(
+        "loan-approval__RiskAssessment__scoreApplicant",
+        NameClashAvoidanceSupport.scopedTaskDefinition(testee, MODULE, PROCESS, "scoreApplicant", ADAPTER));
+    assertEquals(
+        PROCESS,
+        NameClashAvoidanceSupport.plainProcessId(testee, MODULE, "loan-approval__RiskAssessment", ADAPTER));
+    assertEquals(
+        "PaymentReceived",
+        NameClashAvoidanceSupport.plainIdentifier(testee, MODULE, "loan-approval__PaymentReceived", ADAPTER));
+    assertEquals(
+        "scoreApplicant",
+        NameClashAvoidanceSupport
+            .plainTaskDefinition(testee, MODULE, PROCESS, "loan-approval__RiskAssessment__scoreApplicant", ADAPTER));
+
+  }
+
 }

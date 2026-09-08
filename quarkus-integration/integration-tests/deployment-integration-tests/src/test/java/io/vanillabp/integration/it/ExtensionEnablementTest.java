@@ -2,6 +2,7 @@ package io.vanillabp.integration.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,6 +24,7 @@ import io.vanillabp.integration.test.extension.EveryWorkflowRunsHere;
 import io.vanillabp.integration.test.extension.NoteAggregate;
 import io.vanillabp.integration.test.extension.NoteAggregatePersistence;
 import io.vanillabp.integration.test.extension.NoteWorkflowService;
+import io.vanillabp.integration.test.extension.TransactionUsingExtension;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import jakarta.inject.Inject;
 
@@ -51,6 +53,7 @@ public class ExtensionEnablementTest {
           .addClass(NoteAggregatePersistence.class)
           .addClass(NoteWorkflowService.class)
           .addClass(EveryWorkflowRunsHere.class)
+          .addClass(TransactionUsingExtension.class)
           .addAsResource("bpmn/first.bpmn", "processes/dummy/NoteProcess.bpmn")
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"));
 
@@ -68,6 +71,9 @@ public class ExtensionEnablementTest {
 
   @Inject
   MigrationAdapterProperties properties;
+
+  @Inject
+  TransactionUsingExtension transactions;
 
   @Inject
   jakarta.transaction.UserTransaction userTransaction;
@@ -208,6 +214,44 @@ public class ExtensionEnablementTest {
         IllegalStateException.class,
         () -> election.adapterIdOfWorkflow(MODULE, PROCESS, EveryWorkflowRunsHere.UNKNOWN_AGGREGATE_ID));
     assertTrue(failure.getMessage().contains("demo1"));
+
+  }
+
+  @Test
+  @DisplayName("The extension is told which aggregate a process works on and which processes a module has")
+  public void theExtensionReadsWhatTheRegistryKnows() {
+
+    assertEquals(java.util.Optional.of(NoteAggregate.class), handlers.workflowAggregateOf(MODULE, PROCESS));
+    assertEquals(java.util.Optional.empty(), handlers.workflowAggregateOf(MODULE, "NobodyDeclaredThis"));
+    assertEquals(List.of(PROCESS), handlers.bpmnProcessesOf(MODULE));
+    assertEquals(List.of(), handlers.bpmnProcessesOf("no-such-module"));
+
+  }
+
+  @Test
+  @DisplayName("An extension is told the transaction the workflow's own writes run in")
+  public void anExtensionResolvesTheTransactionOfTheAggregate() {
+
+    // this application contributed no runner of its own, so the answer is the platform's
+    // JTA - and it is the very object the process services write through, not a second
+    // one built next to it
+    assertEquals("the JTA transaction of Quarkus", transactions.describeResolutionFor(NoteAggregate.class));
+    assertSame(transactions.platformRunner(), transactions.runnerOf(NoteAggregate.class));
+
+  }
+
+  @Test
+  @DisplayName("Joining a transaction which is not open is refused naming the reason")
+  public void joiningNothingIsRefusedGuiding() {
+
+    final var failure = assertThrows(
+        IllegalStateException.class,
+        () -> transactions
+            .platformRunner()
+            .inCurrent(() -> "never reached"));
+
+    assertTrue(failure.getMessage().contains("no transaction is active"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("runInCurrentTransaction"), failure.getMessage());
 
   }
 

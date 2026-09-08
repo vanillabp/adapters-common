@@ -2,6 +2,7 @@ package io.vanillabp.integration.extension.spi.handler;
 
 import java.lang.annotation.Annotation;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -64,5 +65,42 @@ public interface ExtensionHandlers {
    */
   Optional<Object> invoke(
       HandlerCall call);
+
+  /**
+   * The workflow aggregate a BPMN process of a workflow module works on - what an
+   * extension needs before it can ask for anything else about that workflow, since the
+   * aggregate is the type its own per-aggregate service is parameterized with and the
+   * type it hands to a resolver of the platform.
+   * <p>
+   * The answer is the class the <code>&#64;WorkflowService</code> declaring that process
+   * named, which is what the scan already knows; an extension re-deriving it would read
+   * the same annotations again, through the bean proxies of a platform it should not
+   * have to know about.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The BPMN process, primary or secondary
+   * @return The workflow-aggregate class, or empty where no
+   *         <code>&#64;WorkflowService</code> of this application declares that process
+   */
+  Optional<Class<?>> workflowAggregateOf(
+      String workflowModuleId,
+      String bpmnProcessId);
+
+  /**
+   * Every BPMN process of a workflow module a <code>&#64;WorkflowService</code> class
+   * declares - the primary ones and the secondary ones alike, in the order they were
+   * registered, each named once. An extension which has something to publish per
+   * workflow (a set of user-task templates, a registration with a server of its own)
+   * asks this instead of scanning the beans of the application.
+   * <p>
+   * A BPMN process the application deploys without claiming it in a
+   * <code>&#64;WorkflowService</code> is not among them: nothing declares which
+   * aggregate it works on, so there is nothing an extension could do with it.
+   *
+   * @param workflowModuleId The workflow module
+   * @return The BPMN process ids, empty where the module has no workflow service
+   */
+  List<String> bpmnProcessesOf(
+      String workflowModuleId);
 
 }
