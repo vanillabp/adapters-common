@@ -19,11 +19,14 @@ import com.mongodb.client.MongoClient;
 
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.QuarkusExtensionTest;
+import io.vanillabp.integration.runtime.processservice.PlatformDefaultStore;
+import io.vanillabp.integration.runtime.processservice.QuarkusPersistenceTechnology;
 import io.vanillabp.integration.test.mixed.JpaAggregate;
 import io.vanillabp.integration.test.mixed.JpaWorkflowService;
 import io.vanillabp.integration.test.mixed.MixedTaskWiringSource;
 import io.vanillabp.integration.test.mixed.MongoAggregate;
 import io.vanillabp.integration.test.mixed.MongoWorkflowService;
+import io.vanillabp.integration.test.mixed.OutboxUsingExtension;
 import io.vanillabp.integration.test.mixed.PhaseTwoRecorder;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import jakarta.inject.Inject;
@@ -53,6 +56,7 @@ public class MixedPersistenceStoreAttributionTest {
           .addClass(MongoAggregate.class)
           .addClass(MongoWorkflowService.class)
           .addClass(MixedTaskWiringSource.class)
+          .addClass(OutboxUsingExtension.class)
           .addClass(PhaseTwoRecorder.class)
           .addAsResource(new StringAsset("not parsed by the dummy adapter"), "processes/dummy/JpaProcess.bpmn")
           .addAsResource(new StringAsset("not parsed by the dummy adapter"), "processes/dummy/MongoProcess.bpmn")
@@ -70,6 +74,9 @@ public class MixedPersistenceStoreAttributionTest {
 
   @Inject
   PhaseTwoRecorder recorder;
+
+  @Inject
+  OutboxUsingExtension extension;
 
   @Inject
   DataSource dataSource;
@@ -103,6 +110,24 @@ public class MixedPersistenceStoreAttributionTest {
         List.of("mongo-start"),
         aggregateIdsInMongoOutbox(),
         "the MongoDB outbox holds exactly the entry of the MongoDB aggregate");
+
+  }
+
+  @Test
+  @DisplayName("An extension is told the same store the workflow's own entries go into")
+  public void anExtensionResolvesTheStoreOfTheAggregate() {
+
+    final var relational = extension.outboxOf(JpaAggregate.class);
+    final var mongo = extension.outboxOf(MongoAggregate.class);
+
+    assertEquals(
+        QuarkusPersistenceTechnology.Technology.JPA,
+        ((PlatformDefaultStore) relational).technology(),
+        "the relational aggregate is served by the relational outbox");
+    assertEquals(
+        QuarkusPersistenceTechnology.Technology.MONGO,
+        ((PlatformDefaultStore) mongo).technology(),
+        "the MongoDB aggregate is served by the MongoDB outbox");
 
   }
 

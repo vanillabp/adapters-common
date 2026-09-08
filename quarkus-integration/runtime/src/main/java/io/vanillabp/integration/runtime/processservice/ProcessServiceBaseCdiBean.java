@@ -8,12 +8,11 @@ import io.quarkus.runtime.StartupEvent;
 import io.smallrye.config.SmallRyeConfig;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
+import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoOutboxResolver;
 import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoRouter;
 import io.vanillabp.integration.adapter.migration.processservice.ProcessServiceBase;
 import io.vanillabp.integration.runtime.config.QuarkusMigrationAdapterProperties;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
-import io.vanillabp.integration.spi.PhaseTwoOutbox;
-import io.vanillabp.integration.spi.PhaseTwoOutboxAware;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Any;
@@ -64,22 +63,14 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
   Instance<List<io.vanillabp.integration.adapter.spi.MigratableProcessService<Object>>> migratableProcessServiceLists;
 
   /**
-   * The outboxes available at runtime, resolved per aggregate (mixed persistence,
-   * dedicated outboxes) via {@link QuarkusPhaseTwoOutboxResolver}. Unsatisfied if no
-   * implementation is available (e.g. no datasource configured) - in this case only
-   * adapters not requiring a two-phase commit can start workflows.
+   * Which outbox an aggregate's transaction reaches (mixed persistence, dedicated
+   * outboxes). The bean of {@link PhaseTwoOutboxResolverProducer} rather than a
+   * resolver of this process service's own: an extension writing entries of its own
+   * has to reach the same answer, and two constructions would be two answers as soon
+   * as one of them changes.
    */
   @Inject
-  @Any
-  Instance<PhaseTwoOutbox> phaseTwoOutboxes;
-
-  /**
-   * Application-provided attributions of aggregates to outboxes (required in
-   * mixed-persistence setups, optional otherwise).
-   */
-  @Inject
-  @Any
-  Instance<PhaseTwoOutboxAware<?>> phaseTwoOutboxAwares;
+  PhaseTwoOutboxResolver phaseTwoOutboxResolver;
 
   /**
    * The logs of processed task deliveries available at runtime, resolved per aggregate
@@ -221,12 +212,6 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
     // which store an aggregate's transaction reaches: read off the persistence VanillaBP
     // resolved for it, so an application with two persistences attributes nothing itself
     final var persistenceTechnology = new QuarkusPersistenceTechnology(aggregatePersistences);
-    final var phaseTwoOutboxResolver = new QuarkusPhaseTwoOutboxResolver(
-        phaseTwoOutboxAwares, phaseTwoOutboxes, persistenceTechnology, outboxProperties
-            .jdbc()
-            .enabled(), outboxProperties
-                .mongo()
-                .enabled());
     final var transactionRunnerResolver = new QuarkusTransactionRunnerResolver(
         transactionRunnerAwares, applicationTransactionRunners, aggregatePersistences, mongoDeploymentProbes, new io.vanillabp.integration.runtime.workflowtask.QuarkusTransactionRunner(
             txRegistry));
@@ -279,7 +264,7 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
    */
   private void registerWorkflowTaskHandlers(
       final List<io.vanillabp.integration.adapter.spi.MigratableProcessService<A>> processServices,
-      final QuarkusPhaseTwoOutboxResolver phaseTwoOutboxResolver,
+      final PhaseTwoOutboxResolver phaseTwoOutboxResolver,
       final io.vanillabp.integration.spi.WorkflowAdapterCache electionCache,
       final QuarkusTaskDeliveryLogResolver taskDeliveryLogResolver,
       final QuarkusTransactionRunnerResolver transactionRunnerResolver) {
