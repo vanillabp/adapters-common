@@ -52,6 +52,12 @@ import lombok.extern.slf4j.Slf4j;
  * The adapters are passed in rather than held, the way {@link WorkflowLocator} takes them:
  * this collaborator is about the records, and which adapters serve a BPMN process is the
  * process service's business.
+ * <p>
+ * One instance belongs to one BPMN process and WRITES under that id. The two reads about a
+ * task the application names walk further: a task of a secondary process was delivered to
+ * the instance of THAT id, while every {@code ProcessService} call reaches the primary one,
+ * so they ask for each id the workflow service serves, the own id first
+ * ({@link #setBpmnProcessIdsToReadUnder(List)}).
  */
 @Slf4j
 public final class DeliveryRecords {
@@ -65,6 +71,13 @@ public final class DeliveryRecords {
   private final String workflowModuleId;
 
   private final String bpmnProcessId;
+
+  /**
+   * The BPMN process ids a record of this workflow may sit under, this instance's own id
+   * first. Set by the process service once the platform integration told it which
+   * processes its workflow service serves; until then the own id is the whole list.
+   */
+  private volatile List<String> bpmnProcessIdsToReadUnder;
 
   private final Class<?> workflowAggregateClass;
 
@@ -130,9 +143,32 @@ public final class DeliveryRecords {
 
     this.workflowModuleId = workflowModuleId;
     this.bpmnProcessId = bpmnProcessId;
+    this.bpmnProcessIdsToReadUnder = List.of(bpmnProcessId);
     this.workflowAggregateClass = workflowAggregateClass;
     this.properties = properties;
     this.resolver = resolver;
+
+  }
+
+  /**
+   * Where a record of this workflow may be looked for, beyond this instance's own BPMN
+   * process id.
+   * <p>
+   * A record is written under the id of the process which DELIVERED the task, and for a
+   * task of a secondary process that is the secondary id, while the application completes
+   * that task on the primary process service. Reading only the own id therefore found no
+   * record for such a task: the operation paid a probe of the adapter it need not have
+   * paid, and the row nobody found stayed open.
+   *
+   * @param bpmnProcessIds The ids to read under, the own id first; <code>null</code> or
+   *          empty restores the own id alone
+   */
+  public void setBpmnProcessIdsToReadUnder(
+      final List<String> bpmnProcessIds) {
+
+    this.bpmnProcessIdsToReadUnder = (bpmnProcessIds == null) || bpmnProcessIds.isEmpty()
+        ? List.of(bpmnProcessId)
+        : List.copyOf(bpmnProcessIds);
 
   }
 
@@ -744,6 +780,13 @@ public final class DeliveryRecords {
    * which is over says nothing about the workflow around it, so a closed record answers only
    * the operations which end the task themselves.
    * <p>
+   * The record is looked for under every BPMN process id this workflow service serves, this
+   * instance's own id first. A task of a secondary process was delivered to the instance of
+   * THAT process and its record therefore carries the secondary id, while the application
+   * completes the task on the primary process service - so a read of the own id alone found
+   * nothing for exactly the tasks a called process left open
+   * ({@link #setBpmnProcessIdsToReadUnder(List)}).
+   * <p>
    * <code>null</code> means the record cannot answer, and then everything happens as it did
    * before: no store, deliveries not deduplicated, the retention gone over the record, a BPMS
    * which reports no delivery identity, a workflow started before this version was deployed,
@@ -773,9 +816,7 @@ public final class DeliveryRecords {
     if (deliveryLog == null) {
       return null;
     }
-    final var record = deliveryLog
-        .recordOfTask(workflowModuleId, bpmnProcessId, workflowAggregateId.toString(), taskId)
-        .orElse(null);
+    final var record = recordOfTaskUnderAnyServedId(deliveryLog, workflowAggregateId.toString(), taskId);
     if ((record == null) || (record.adapterId() == null)) {
       return null;
     }
@@ -841,6 +882,11 @@ public final class DeliveryRecords {
    * leaves that task open - pushing a changed aggregate into its scope completes nothing -
    * so writing the moment of a completion there would close a record while the BPMS still
    * hands the task out.
+   * <p>
+   * The row is looked for under every BPMN process id this workflow service serves, the own
+   * id first, and the first one marked ends the search: the delivery which opened that row
+   * may have been one of a secondary process, and then the row does not carry the id the
+   * application called.
    *
    * @param operation The operation which was dispatched
    * @param workflowAggregateId The workflow aggregate it was about
@@ -865,8 +911,7 @@ public final class DeliveryRecords {
       return;
     }
     try {
-      deliveryLog
-          .markTaskClosed(workflowModuleId, bpmnProcessId, workflowAggregateId.toString(), taskId);
+      markTaskClosedWhereTheRecordSits(deliveryLog, workflowAggregateId.toString(), taskId);
     } catch (final RuntimeException e) {
       log.warn(
           "Task '{}' of {} was closed in its BPMS, but the delivery record could not be marked "
@@ -889,6 +934,55 @@ public final class DeliveryRecords {
       final PhaseOperation operation) {
 
     return (operation.election() == Election.HOLDS_THE_TASK) || (operation.election() == Election.HOLDS_THE_USER_TASK);
+
+  }
+
+  /**
+   * The record of the given task, looked for under every BPMN process id this workflow
+   * service serves, the own id first. The first one found wins: a task id belongs to one
+   * activation of one process, so there is nothing to choose between.
+   *
+   * @param deliveryLog The store to ask
+   * @param workflowAggregateId The workflow aggregate in serialized form
+   * @param taskId The BPMS' identity of the task
+   * @return The record or <code>null</code> where no id holds one
+   */
+  private TaskDelivery recordOfTaskUnderAnyServedId(
+      final TaskDeliveryLog deliveryLog,
+      final String workflowAggregateId,
+      final String taskId) {
+
+    for (final var candidate : bpmnProcessIdsToReadUnder) {
+      final var record = deliveryLog
+          .recordOfTask(workflowModuleId, candidate, workflowAggregateId, taskId)
+          .orElse(null);
+      if (record != null) {
+        return record;
+      }
+    }
+    return null;
+
+  }
+
+  /**
+   * Marks the record of the given task closed, under whichever BPMN process id holds it.
+   * Stops at the first id whose record was marked, so a service serving one process pays
+   * exactly the one update it always paid.
+   *
+   * @param deliveryLog The store to write to
+   * @param workflowAggregateId The workflow aggregate in serialized form
+   * @param taskId The BPMS' identity of the closed task
+   */
+  private void markTaskClosedWhereTheRecordSits(
+      final TaskDeliveryLog deliveryLog,
+      final String workflowAggregateId,
+      final String taskId) {
+
+    for (final var candidate : bpmnProcessIdsToReadUnder) {
+      if (deliveryLog.markTaskClosed(workflowModuleId, candidate, workflowAggregateId, taskId) > 0) {
+        return;
+      }
+    }
 
   }
 

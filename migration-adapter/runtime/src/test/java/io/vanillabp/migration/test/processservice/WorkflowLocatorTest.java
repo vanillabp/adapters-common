@@ -44,6 +44,13 @@ public class WorkflowLocatorTest {
   private static final String PROCESS = "TestProcess";
 
   /**
+   * A second process of the same workflow service, called by the primary one. What its
+   * deliveries taught the core is written down under THIS id, while the application
+   * addresses the primary service.
+   */
+  private static final String SECONDARY_PROCESS = "CalledProcess";
+
+  /**
    * A process service answering a fixed awareness sequence (one element per probe
    * call) - the last element repeats.
    */
@@ -152,7 +159,29 @@ public class WorkflowLocatorTest {
       final WorkflowLocator.Patience patience,
       final ProbeAdapter... adapters) {
 
-    return new WorkflowLocator(MODULE, PROCESS, cache)
+    return locateOn(new WorkflowLocator(MODULE, PROCESS, cache), patience, adapters);
+
+  }
+
+  /**
+   * The locator of the PRIMARY process of a workflow service which also serves a called
+   * process - what the platform integration builds and hands the served ids to.
+   */
+  private static WorkflowLocator primaryLocatorOfAServiceWithACalledProcess(
+      final WorkflowAdapterCache cache) {
+
+    final var locator = new WorkflowLocator(MODULE, PROCESS, cache);
+    locator.setBpmnProcessIdsToReadUnder(List.of(PROCESS, SECONDARY_PROCESS));
+    return locator;
+
+  }
+
+  private static WorkflowLocator.Location<Object> locateOn(
+      final WorkflowLocator locator,
+      final WorkflowLocator.Patience patience,
+      final ProbeAdapter... adapters) {
+
+    return locator
         .locate(
             List.of(adapters),
             adapter -> adapter.awarenessOfTask(SCOPE, "42", "task-1"),
@@ -645,5 +674,89 @@ public class WorkflowLocatorTest {
 
   }
 
+  @Test
+  @DisplayName("A hint a called process wrote is read by the primary service, and its window is waited out")
+  public void aHintOfACalledProcessIsReadAndItsWindowIsWaitedOut() {
+
+    // the delivery of a task of the called process wrote the hint, so it sits under THAT
+    // id; the application pushes its changed aggregate through the primary service, and
+    // the read model of the BPMS has not caught up
+    final var cache = new InMemoryWorkflowAdapterCache();
+    cache.put(MODULE, SECONDARY_PROCESS, "42", "remote");
+    final var remote = new ProbeAdapter(
+        "remote", WorkflowAwareness.UNKNOWN_TO_BPMS, WorkflowAwareness.UNKNOWN_TO_BPMS, WorkflowAwareness.ACTIVE)
+        .waitingFor(java.time.Duration.ofSeconds(2));
+
+    final var location = locateOn(
+        primaryLocatorOfAServiceWithACalledProcess(cache), WorkflowLocator.Patience.WAIT_FOR_VISIBILITY, remote);
+
+    assertEquals(WorkflowAwareness.ACTIVE, location.awareness());
+    assertSame(remote, location.adapter());
+    assertTrue(remote.probes.get() > 1, "without the hint nothing would have asked a second time");
+
+  }
+
+  @Test
+  @DisplayName("Without the hint of a called process the walk answers unknown, and nothing waits")
+  public void withoutTheServedIdsAHintOfACalledProcessIsNotRead() {
+
+    final var cache = new InMemoryWorkflowAdapterCache();
+    cache.put(MODULE, SECONDARY_PROCESS, "42", "remote");
+    final var remote = new ProbeAdapter("remote", WorkflowAwareness.UNKNOWN_TO_BPMS)
+        .waitingFor(java.time.Duration.ofSeconds(2));
+
+    final var location = locate(cache, remote);
+
+    assertEquals(WorkflowAwareness.UNKNOWN_TO_BPMS, location.awareness());
+    assertFalse(
+        location.isUnknownButExpected(),
+        "a service which serves the primary process alone has no business reading another "
+            + "process' hints");
+    assertEquals(1, remote.probes.get(), "and nothing waits for a workflow nobody claims");
+
+  }
+
+  @Test
+  @DisplayName("A stale hint of a called process is repaired where it lives")
+  public void aStaleHintOfACalledProcessIsRepairedWhereItLives() {
+
+    final var cache = new InMemoryWorkflowAdapterCache();
+    cache.put(MODULE, SECONDARY_PROCESS, "42", "removed-adapter");
+    final var first = new ProbeAdapter("first", WorkflowAwareness.ACTIVE);
+
+    final var location = locateOn(
+        primaryLocatorOfAServiceWithACalledProcess(cache), WorkflowLocator.Patience.WAIT_FOR_VISIBILITY, first);
+
+    assertEquals(WorkflowAwareness.ACTIVE, location.awareness());
+    assertTrue(
+        cache.get(MODULE, SECONDARY_PROCESS, "42").isEmpty(),
+        "the entry which was read is the entry which is dropped - repairing another one would "
+            + "leave this hint to be read again");
+    assertEquals(
+        "first",
+        cache.get(MODULE, PROCESS, "42").orElseThrow(),
+        "what the walk elected is remembered where this service writes");
+
+  }
+
+  @Test
+  @DisplayName("A workflow which ended is marked under the id its hint sits at")
+  public void anEndedWorkflowIsMarkedWhereItsHintLives() {
+
+    final var cache = new InMemoryWorkflowAdapterCache();
+    cache.put(MODULE, SECONDARY_PROCESS, "42", "remote");
+    final var remote = new ProbeAdapter("remote", WorkflowAwareness.COMPLETED);
+
+    final var location = locateOn(
+        primaryLocatorOfAServiceWithACalledProcess(cache), WorkflowLocator.Patience.WAIT_FOR_VISIBILITY, remote);
+
+    assertEquals(WorkflowAwareness.COMPLETED, location.awareness());
+    assertEquals(
+        "remote",
+        cache.get(MODULE, SECONDARY_PROCESS, "42").orElseThrow(),
+        "an operation arriving behind the end still gets the warned no-op");
+    assertEquals(1, cache.endedSize(), "and one entry is marked, not two");
+
+  }
 
 }

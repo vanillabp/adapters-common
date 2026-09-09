@@ -335,7 +335,10 @@ already.
 **A store the application wrote itself** keeps working unchanged: `TaskDeliveryLog` gained
 `recordOfTask` and `markTaskClosed`, both `default`, answering "nothing" and doing nothing. An
 application which implements them saves the round trip; one which does not pays what it always
-paid.
+paid. VanillaBP asks them for every BPMN process id the workflow service serves, its own
+one first, and stops at the first answer: a task a called process handed out was delivered to the
+instance of the SECONDARY id, so its record carries that id while the application completes the task
+on the primary process service.
 
 ## The end of a workflow marks its election hint instead of refreshing it (2026-08-30)
 

@@ -33,6 +33,17 @@ import lombok.extern.slf4j.Slf4j;
  * the retry-never-fallback contract below (it never falls through - the
  * unavailable BPMS most probably holds the workflow).
  * <p>
+ * <b>Which BPMN process id a hint sits under.</b> The one which was running when
+ * VanillaBP learned the answer, and that is not always the id the application calls
+ * its operations on: a task of a secondary process is delivered to the instance of
+ * THAT process, so the hint is written under the secondary id while
+ * {@code ProcessService} always addresses the primary one. The write stays where it
+ * is - it names the process which was actually running, and nothing has to be
+ * migrated - and the READ looks under every id the workflow service serves, this
+ * instance's own first ({@link #setBpmnProcessIdsToReadUnder(List)}). All of them
+ * belong to one workflow aggregate, so the first hint found is a hint about this
+ * workflow (see decision 5 in the repository's DECISIONS.md).
+ * <p>
  * A hint is also what turns the meaning of an unknown answer around: an adapter
  * which SHOULD hold the workflow and does not report it is a reason to look again
  * (an eventually consistent BPMS needs a moment after the start), while the same
@@ -137,6 +148,13 @@ public final class WorkflowLocator {
    */
   private final WorkflowAdapterCache cache;
 
+  /**
+   * The BPMN process ids a hint of this workflow may sit under, this instance's own id
+   * first. Set by the process service once the platform integration told it which
+   * processes its workflow service serves; until then the own id is the whole list.
+   */
+  private volatile List<String> bpmnProcessIdsToReadUnder;
+
   public WorkflowLocator(
       final String workflowModuleId,
       final String bpmnProcessId,
@@ -145,6 +163,29 @@ public final class WorkflowLocator {
     this.workflowModuleId = workflowModuleId;
     this.bpmnProcessId = bpmnProcessId;
     this.cache = cache;
+    this.bpmnProcessIdsToReadUnder = List.of(bpmnProcessId);
+
+  }
+
+  /**
+   * Where a hint of this workflow may be looked for, beyond this instance's own BPMN
+   * process id.
+   * <p>
+   * A hint is written under the id of the process which was running when VanillaBP
+   * learned the answer, and for a task of a secondary process that is the SECONDARY id,
+   * while the application calls its operations on the primary process service. Reading
+   * only the own id therefore missed the hint of every workflow a secondary process had
+   * a hand in, and with it the reason to wait out an eventually consistent BPMS.
+   *
+   * @param bpmnProcessIds The ids to read under, the own id first; <code>null</code> or
+   *          empty restores the own id alone
+   */
+  public void setBpmnProcessIdsToReadUnder(
+      final List<String> bpmnProcessIds) {
+
+    this.bpmnProcessIdsToReadUnder = (bpmnProcessIds == null) || bpmnProcessIds.isEmpty()
+        ? List.of(bpmnProcessId)
+        : List.copyOf(bpmnProcessIds);
 
   }
 
@@ -273,21 +314,60 @@ public final class WorkflowLocator {
         ? null
         : workflowAggregateId.toString();
 
-    final var hintedAdapterId = (cache == null) || (serializedAggregateId == null)
+    final var hint = (cache == null) || (serializedAggregateId == null)
         ? null
-        : cache
-            .get(workflowModuleId, bpmnProcessId, serializedAggregateId)
-            .orElse(null);
+        : hintOf(serializedAggregateId);
 
-    if (hintedAdapterId != null) {
+    if (hint != null) {
       final var location = locateViaHint(
-          prioritizedAdapters, probe, serializedAggregateId, hintedAdapterId, subject, patience);
+          prioritizedAdapters, probe, serializedAggregateId, hint, subject, patience);
       if (location != null) {
         return location;
       }
     }
 
-    return walk(prioritizedAdapters, probe, serializedAggregateId, hintedAdapterId, subject, patience);
+    return walk(
+        prioritizedAdapters,
+        probe,
+        serializedAggregateId,
+        hint == null
+            ? null
+            : hint.adapterId(),
+        subject,
+        patience);
+
+  }
+
+  /**
+   * What a hint says, together with the BPMN process id it was found under. The second half
+   * matters because a hint is repaired where it sits: dropping or marking the own id instead
+   * would leave the entry which is read next time saying the old thing.
+   *
+   * @param bpmnProcessId The id the hint sits under
+   * @param adapterId The adapter the hint points at
+   */
+  private record Hint(
+                      String bpmnProcessId,
+                      String adapterId) {
+  }
+
+  /**
+   * The hint of the given workflow, looked for under every BPMN process id this workflow
+   * service serves, the own id first. The first one found wins: a workflow is one
+   * workflow whichever of those processes was running when the hint was written.
+   */
+  private Hint hintOf(
+      final String serializedAggregateId) {
+
+    for (final var candidate : bpmnProcessIdsToReadUnder) {
+      final var adapterId = cache
+          .get(workflowModuleId, candidate, serializedAggregateId)
+          .orElse(null);
+      if (adapterId != null) {
+        return new Hint(candidate, adapterId);
+      }
+    }
+    return null;
 
   }
 
@@ -304,10 +384,11 @@ public final class WorkflowLocator {
       final List<MigratableProcessService<A>> prioritizedAdapters,
       final Function<MigratableProcessService<A>, WorkflowAwareness> probe,
       final String serializedAggregateId,
-      final String cachedAdapterId,
+      final Hint hint,
       final String subject,
       final Patience patience) {
 
+    final var cachedAdapterId = hint.adapterId();
     final var cachedAdapter = prioritizedAdapters
         .stream()
         .filter(adapter -> adapter.getAdapterId().equals(cachedAdapterId))
@@ -320,7 +401,7 @@ public final class WorkflowLocator {
           "Cached adapter '{}' for {} is no longer a prioritized adapter - dropping the hint",
           cachedAdapterId,
           subject);
-      cache.invalidate(workflowModuleId, bpmnProcessId, serializedAggregateId);
+      cache.invalidate(workflowModuleId, hint.bpmnProcessId(), serializedAggregateId);
       return null;
     }
 
@@ -334,8 +415,10 @@ public final class WorkflowLocator {
       case COMPLETED -> {
         // the workflow ended - the hint is marked rather than dropped, so the next
         // operation on it is answered by the same adapter (a warned no-op) instead of
-        // walking everybody, and it leaves the cache long before a living one would
-        cache.putEnded(workflowModuleId, bpmnProcessId, serializedAggregateId, cachedAdapterId);
+        // walking everybody, and it leaves the cache long before a living one would.
+        // Marked where the hint sits rather than under this instance's own id: a second
+        // entry would leave the one which was read claiming a living workflow
+        cache.putEnded(workflowModuleId, hint.bpmnProcessId(), serializedAggregateId, cachedAdapterId);
         return new Location<>(awareness, cachedAdapter, null);
       }
       case UNKNOWN_TO_BPMS -> {

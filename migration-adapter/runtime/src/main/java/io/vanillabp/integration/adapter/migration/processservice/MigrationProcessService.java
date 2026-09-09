@@ -2111,6 +2111,46 @@ public class MigrationProcessService<A> {
         ? null
         : List.copyOf(servedBpmnProcessIds);
 
+    // the same list is what a delivery record and an election hint are looked for under,
+    // because both are written by the instance of the process which was running and read
+    // by the instance the application calls
+    final var idsToReadUnder = bpmnProcessIdsToReadUnder();
+    deliveryRecords.setBpmnProcessIdsToReadUnder(idsToReadUnder);
+    workflowLocator.setBpmnProcessIdsToReadUnder(idsToReadUnder);
+
+  }
+
+  /**
+   * The BPMN process ids under which something written down about a workflow of this
+   * aggregate may sit, THIS instance's own id first.
+   * <p>
+   * A delivery record and an election hint carry the id of the process which was running
+   * when VanillaBP learned what they say, and that is the process which delivered the
+   * task rather than the one the application addresses: an application calls its
+   * operations on the primary process service, always, while a task of a secondary
+   * process is delivered to the instance of the secondary id. All those processes run on
+   * one workflow aggregate, so what one of them wrote down is a statement about the same
+   * workflow, and the own id goes first because it is where the answer usually is.
+   * <p>
+   * The ids a rename left behind are part of it as well (they are declared, so they are
+   * served): a task an application still completes after the rename is exactly the one
+   * whose record sits under the old id.
+   *
+   * @return The ids to read under, never empty
+   */
+  private List<String> bpmnProcessIdsToReadUnder() {
+
+    if (servedBpmnProcessIds == null) {
+      return List.of(bpmnProcessId);
+    }
+    final var idsToReadUnder = new ArrayList<String>(servedBpmnProcessIds.size() + 1);
+    idsToReadUnder.add(bpmnProcessId);
+    servedBpmnProcessIds
+        .stream()
+        .filter(servedId -> !servedId.equals(bpmnProcessId))
+        .forEach(idsToReadUnder::add);
+    return List.copyOf(idsToReadUnder);
+
   }
 
   /**
