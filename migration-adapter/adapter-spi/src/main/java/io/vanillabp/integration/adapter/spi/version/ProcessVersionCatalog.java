@@ -123,7 +123,7 @@ public interface ProcessVersionCatalog {
    * The elements of ONE deployed version which can put a SECOND token into a running
    * workflow - a non-interrupting boundary event, a parallel or inclusive gateway forking
    * into several flows, a parallel multi-instance activity, a non-interrupting event
-   * subprocess. The same walk an adapter runs while wiring for
+   * subprocess, an ad-hoc subprocess. The same walk an adapter runs while wiring for
    * {@link io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring#reportConcurrentTokenElements},
    * run over a model the BPMS still holds.
    * <p>

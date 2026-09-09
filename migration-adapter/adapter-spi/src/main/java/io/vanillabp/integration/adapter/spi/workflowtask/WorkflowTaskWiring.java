@@ -103,8 +103,14 @@ public interface WorkflowTaskWiring {
    * Reports the elements of a BPMN process which can put a SECOND token into a
    * running workflow - a non-interrupting boundary event, a parallel or inclusive
    * gateway forking into several flows, a parallel multi-instance activity, a
-   * non-interrupting event subprocess. Called during <code>wireBpmn</code>, since
-   * only the adapter can read its BPMN dialect.
+   * non-interrupting event subprocess, an ad-hoc subprocess. Called during
+   * <code>wireBpmn</code>, since only the adapter can read its BPMN dialect.
+   * <p>
+   * The ad-hoc subprocess belongs on that list whatever the model around it says. Which
+   * of its activities run is decided while the workflow already stands there, so a model
+   * activating one activity today activates two as soon as the data behind that choice
+   * changes. A warning which appears only after such a change is worse than one which
+   * appears always.
    * <p>
    * What it means is the core's decision: concurrent tokens mean two
    * branches writing the same workflow aggregate, and an aggregate without a version
