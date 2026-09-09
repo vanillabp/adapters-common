@@ -11,6 +11,7 @@ import io.vanillabp.integration.adapter.migration.processservice.MigrationProces
 import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoOutboxResolver;
 import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoRouter;
 import io.vanillabp.integration.adapter.migration.processservice.ProcessServiceBase;
+import io.vanillabp.integration.adapter.migration.processservice.TransactionRunnerResolver;
 import io.vanillabp.integration.runtime.config.QuarkusMigrationAdapterProperties;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import jakarta.annotation.PostConstruct;
@@ -90,25 +91,22 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
   @Any
   Instance<io.vanillabp.integration.spi.TaskDeliveryLogAware<?>> taskDeliveryLogAwares;
 
+  /**
+   * Answers whether a transaction is open where no runner of an aggregate can be asked -
+   * see {@link #noTransactionIsActive()}.
+   */
   @Inject
   TransactionSynchronizationRegistry txRegistry;
 
   /**
-   * Application-provided attributions of aggregates to transaction runners - the hook of
-   * for a storage the platform does not manage.
+   * Which transaction a workflow aggregate is written through - the application's runner
+   * where it contributed one, the platform's JTA otherwise. The bean of
+   * {@link TransactionRunnerProducer} rather than a resolver of this process service's
+   * own: an extension writing into the transaction of the same aggregate asks the same
+   * bean, and two constructions would be two answers as soon as one of them changes.
    */
   @Inject
-  @Any
-  Instance<io.vanillabp.integration.spi.TransactionRunnerAware<?>> transactionRunnerAwares;
-
-  /**
-   * A transaction runner of the application serving every aggregate no
-   * {@link io.vanillabp.integration.spi.TransactionRunnerAware} covers. VanillaBP's own
-   * runner is not a bean, so whatever is found here belongs to the application.
-   */
-  @Inject
-  @Any
-  Instance<io.vanillabp.integration.spi.TransactionRunner> applicationTransactionRunners;
+  TransactionRunnerResolver transactionRunnerResolver;
 
   /**
    * The aggregate persistences of the application, used by the startup check to tell
@@ -118,14 +116,6 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
   @Inject
   @Any
   Instance<AggregatePersistenceAware<?>> aggregatePersistences;
-
-  /**
-   * Answers whether the MongoDB deployment is a replica set, which the startup check needs
-   * for an aggregate MongoDB Panache manages. Unsatisfied in an application without the
-   * MongoDB client extension - see {@link MongoDeploymentProbe}.
-   */
-  @Inject
-  Instance<MongoDeploymentProbe> mongoDeploymentProbes;
 
   /**
    * The core-owned router dispatching committed phase-two outbox entries. This bean
@@ -212,9 +202,6 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
     // which store an aggregate's transaction reaches: read off the persistence VanillaBP
     // resolved for it, so an application with two persistences attributes nothing itself
     final var persistenceTechnology = new QuarkusPersistenceTechnology(aggregatePersistences);
-    final var transactionRunnerResolver = new QuarkusTransactionRunnerResolver(
-        transactionRunnerAwares, applicationTransactionRunners, aggregatePersistences, mongoDeploymentProbes, new io.vanillabp.integration.runtime.workflowtask.QuarkusTransactionRunner(
-            txRegistry));
     final var taskDeliveryLogResolver = new QuarkusTaskDeliveryLogResolver(
         taskDeliveryLogAwares, taskDeliveryLogs, persistenceTechnology, outboxProperties
             .jdbc()
@@ -267,7 +254,7 @@ public abstract class ProcessServiceBaseCdiBean<A> extends ProcessServiceBase<A>
       final PhaseTwoOutboxResolver phaseTwoOutboxResolver,
       final io.vanillabp.integration.spi.WorkflowAdapterCache electionCache,
       final QuarkusTaskDeliveryLogResolver taskDeliveryLogResolver,
-      final QuarkusTransactionRunnerResolver transactionRunnerResolver) {
+      final TransactionRunnerResolver transactionRunnerResolver) {
 
     if (!workflowTaskRegistry.isResolvable()) {
       return;

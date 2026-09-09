@@ -22,6 +22,7 @@ import io.vanillabp.integration.runtime.outbox.MongoPhaseTwoOutboxDispatcher;
 import io.vanillabp.integration.runtime.processservice.PhaseTwoOutboxResolverProducer;
 import io.vanillabp.integration.runtime.processservice.PhaseTwoRouterProducer;
 import io.vanillabp.integration.runtime.processservice.QuarkusPreCommitRegistrar;
+import io.vanillabp.integration.runtime.processservice.TransactionRunnerProducer;
 import io.vanillabp.integration.runtime.processservice.WorkflowAdapterCacheProducer;
 import io.vanillabp.integration.runtime.util.UriSubstitute;
 import io.vanillabp.integration.runtime.util.UriSubstitution;
@@ -178,6 +179,27 @@ public class VanillaBpBuildStepProcessor {
     return AdditionalBeanBuildItem
         .builder()
         .addBeanClass(PhaseTwoOutboxResolverProducer.class)
+        .setUnremovable() // an extension may be the only one injecting it
+        .build();
+
+  }
+
+  /**
+   * Registers the transaction of VanillaBP as beans (via
+   * {@link TransactionRunnerProducer}): the platform's own runner and the resolver
+   * saying which runner a workflow aggregate is written through. The process services,
+   * the pre-commit registrar and the phase-two router use them, and an extension writing
+   * something of its own into the transaction of an aggregate injects the resolver
+   * instead of opening a transaction of its own.
+   *
+   * @return The additional {@link TransactionRunnerProducer} bean
+   */
+  @BuildStep
+  AdditionalBeanBuildItem buildTransactionRunner() {
+
+    return AdditionalBeanBuildItem
+        .builder()
+        .addBeanClass(TransactionRunnerProducer.class)
         .setUnremovable() // an extension may be the only one injecting it
         .build();
 

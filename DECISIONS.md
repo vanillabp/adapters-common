@@ -985,3 +985,33 @@ The adapters carry the consequences in their own decision logs and cite this ent
 The startup diagnostics' `null` defaults (`processVersionCatalogOf` and its siblings) stay as
 they are: `null` means "this BPMS cannot be asked", and every check reading the picture then
 stays silent, which is the first rule applied one level up.
+
+### 39. Which adapter ids a type serves is answered in one place
+
+An application configures adapters, and both platform integrations plus every extension bridging
+to a BPMS have to turn that configuration into the same list: the ids of ONE adapter type, one set
+of beans per id, because several ids of one type is what a migration looks like. Three rules
+decide the list, and every consumer which reimplemented it dropped one of them.
+
+The first is the plain one: a section under `vanillabp.adapters.<id>` whose `type` is this type, an
+id without a `type` being its own type. The second is convention over configuration: an id named in
+`prioritized-adapters` which IS an adapter type needs no section at all, and this one cannot be read
+off the bound sections, because a section may consist entirely of keys the core model does not know
+(an adapter's own `rest-address`, `webapps`, `database-schema-update`) and then nothing binds for it.
+The third is the application which configures nothing: the single adapter dependency IS the
+configuration, and the id the core derives is the type.
+
+Leaving one out is invisible until it is expensive. The Spring Boot registrar applied the second rule
+only where NOTHING bound onto the core model, so a migration setup with one core key in the new
+BPMS' section registered no beans for the old adapter while the core derived its section and the
+election looked for something serving that id. The Quarkus producers of the BPMS double filtered
+the sections and nothing else, so the same two rules were missing there. Outside this repository an
+extension bridging to a BPMS registers one bridge per configured engine and needs the identical
+list, and a copy of it which drops a rule leaves the adapter registered and the bridge missing.
+
+So `MigrationAdapterProperties#adapterIdsOfType` answers it, `AdapterBeanRegistrarSupport` binds
+the tree off the Spring environment and asks it, and a Quarkus consumer asks it of the mapped
+properties. What stays platform-specific is where the properties come from, which is the only part
+that differs. `MigrationAdapterPropertiesTest.AdapterIdsOfType` holds the rules,
+`AdapterBeanRegistrarSupportTest` the Spring binding and `QuarkusAdapterIdsOfTypeTest` the Quarkus
+one.

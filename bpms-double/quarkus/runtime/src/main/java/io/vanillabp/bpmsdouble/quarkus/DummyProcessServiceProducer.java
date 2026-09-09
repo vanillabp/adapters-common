@@ -1,7 +1,6 @@
 package io.vanillabp.bpmsdouble.quarkus;
 
 import java.util.List;
-import java.util.Map;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 
@@ -27,7 +26,10 @@ import jakarta.enterprise.inject.Produces;
  * adapter id is a CONSTRUCTOR parameter of each instance.
  * <p>
  * The adapter-id set ALWAYS comes from the platform's core properties
- * ({@code adapterTypes()}); adapter-owned overlay maps of the
+ * ({@code adapterIdsOfType()}, which is where the whole rule lives - filtering
+ * {@code adapterTypes()} would lose the ids an application names in
+ * <code>prioritized-adapters</code> without a section, and the id an application
+ * configuring nothing gets from the classpath). Adapter-owned overlay maps of the
  * <code>vanillabp.*</code> tree are per-known-id lookups only and must never be
  * iterated to discover ids.
  * <p>
@@ -70,12 +72,8 @@ public class DummyProcessServiceProducer {
         .orElse(Boolean.FALSE);
 
     return properties
-        .adapterTypes()
-        .entrySet()
-        .stream()
-        .filter(adapter -> ADAPTER_TYPE.equals(adapter.getValue()))
-        .map(Map.Entry::getKey)
-        .sorted().<io.vanillabp.integration.adapter.spi.MigratableProcessService<Object>>map(
+        .adapterIdsOfType(ADAPTER_TYPE)
+        .stream().<io.vanillabp.integration.adapter.spi.MigratableProcessService<Object>>map(
             adapterId -> new DummyProcessService<>(
                 adapterId, deliversTasksAtLeastOnce, readsAggregateInPhaseTwo, phaseTwoListeners::stream, taskAwarenessSources::stream, viewerSources::stream))
         .toList();

@@ -6,12 +6,18 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
 import io.vanillabp.integration.adapter.migration.transaction.AggregateWrite;
+import io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees;
+import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.extension.spi.handler.ExtensionHandlers;
 import io.vanillabp.integration.extension.spi.handler.HandlerCall;
 import io.vanillabp.integration.extension.spi.handler.HandlerContract;
@@ -31,6 +37,8 @@ import io.vanillabp.integration.spi.TransactionRunner;
  * the result is the same.
  */
 public class ExtensionHandlerRegistry implements ExtensionHandlers {
+
+  private static final Logger log = LoggerFactory.getLogger(ExtensionHandlerRegistry.class);
 
   private record RegistryKey(
                              String workflowModuleId,
@@ -61,6 +69,37 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
   private final Map<RegistryKey, List<ExtensionHandlerMethod>> methods = new ConcurrentHashMap<>();
 
   private final Map<RegistryKey, MigrationProcessService<?>> processServices = new ConcurrentHashMap<>();
+
+  /**
+   * What one report about the handler methods nobody sees is about.
+   */
+  private record LookedOver(
+                            Class<? extends Annotation> annotationType,
+                            Class<?> workflowServiceClass) {
+  }
+
+  /**
+   * The reports already written. A workflow service class arrives here once per BPMN
+   * process it declares and the report is about the class, so it is written once per
+   * contract.
+   */
+  private final Set<LookedOver> classesLookedOverPerContract = ConcurrentHashMap.newKeySet();
+
+  /**
+   * One element of one BPMN process of one workflow module.
+   */
+  private record BpmnElement(
+                             String workflowModuleId,
+                             String bpmnProcessId,
+                             String activityId) {
+  }
+
+  /**
+   * The names the adapters read off the models they deployed. Only an extension asks for
+   * them, which is why they are kept here rather than next to the wiring: nothing
+   * VanillaBP decides depends on a name.
+   */
+  private final Map<BpmnElement, String> bpmnTaskNames = new ConcurrentHashMap<>();
 
   /**
    * @param transactionRunner The platform's transaction runner, which wraps every
@@ -130,6 +169,8 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
       final HandlerContract contract,
       final RegisteredWorkflowService service) {
 
+    reportHandlerMethodsNobodySees(contract, service.workflowServiceClass());
+
     final var found = ExtensionHandlerScanner
         .scan(
             contract,
@@ -149,6 +190,29 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
             failOnDuplicateWiring(contract, service, registered, method);
             registered.add(method);
           });
+    }
+
+  }
+
+  /**
+   * Writes the report about the methods of this contract's annotation which the scan
+   * cannot reach, once per (annotation, class). It is the same report VanillaBP writes
+   * about its own handler annotations, for the same reason: an extension's scan reads
+   * the public methods of the class too, so a non-public method or an override which
+   * repeated no annotation is silently not there, and the extension then behaves as if
+   * the application had never written it.
+   */
+  private void reportHandlerMethodsNobodySees(
+      final HandlerContract contract,
+      final Class<?> workflowServiceClass) {
+
+    if (!classesLookedOverPerContract.add(new LookedOver(contract.getAnnotationType(), workflowServiceClass))) {
+      return;
+    }
+    final var report = HandlerMethodsNobodySees
+        .reportFor(workflowServiceClass, List.of(contract.getAnnotationType()));
+    if (report != null) {
+      log.warn(report);
     }
 
   }
@@ -179,6 +243,76 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
                       service.bpmnProcessId(),
                       service.workflowModuleId()));
         });
+
+  }
+
+  /**
+   * Keeps the BPMN names of the tasks an adapter just wired, so an extension can ask for
+   * one. Called while <code>wireBpmn</code> runs, for every process an adapter validates
+   * the wiring of - the ones no <code>&#64;WorkflowService</code> claims included, since
+   * an extension may well have something to say about those too.
+   * <p>
+   * A task carrying no name is not remembered, and where two adapters of a migration
+   * deploy the same process the name of the one wiring last is the answer. Both are
+   * deliberate: the name is a label, and a label VanillaBP guesses at is worse than one
+   * an extension has to do without.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param tasks The tasks the adapter read out of the model
+   */
+  public void rememberBpmnTaskNames(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final Collection<BpmnTaskSpec> tasks) {
+
+    tasks
+        .stream()
+        .filter(task -> (task.name() != null) && !task.name().isBlank())
+        .forEach(task -> bpmnTaskNames
+            .put(new BpmnElement(workflowModuleId, bpmnProcessId, task.activityId()), task.name()));
+
+  }
+
+  @Override
+  public Optional<String> bpmnTaskNameOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String activityId) {
+
+    return Optional
+        .ofNullable(bpmnTaskNames.get(new BpmnElement(workflowModuleId, bpmnProcessId, activityId)));
+
+  }
+
+  @Override
+  public Optional<Class<?>> workflowAggregateOf(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    synchronized (workflowServices) {
+      return workflowServices
+          .stream()
+          .filter(service -> service.workflowModuleId().equals(workflowModuleId))
+          .filter(service -> service.bpmnProcessId().equals(bpmnProcessId))
+          .map(RegisteredWorkflowService::workflowAggregateClass)
+          .findFirst();
+    }
+
+  }
+
+  @Override
+  public List<String> bpmnProcessesOf(
+      final String workflowModuleId) {
+
+    synchronized (workflowServices) {
+      return workflowServices
+          .stream()
+          .filter(service -> service.workflowModuleId().equals(workflowModuleId))
+          .map(RegisteredWorkflowService::bpmnProcessId)
+          .distinct()
+          .toList();
+    }
 
   }
 

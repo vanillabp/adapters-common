@@ -1,7 +1,6 @@
 package io.vanillabp.bpmsdouble.quarkus;
 
 import java.util.List;
-import java.util.Map;
 
 import io.vanillabp.bpmsdouble.DummyBpmsInitiatedStartSource;
 import io.vanillabp.bpmsdouble.DummyDeploymentListener;
@@ -39,7 +38,7 @@ import jakarta.inject.Singleton;
  *       client-proxyable - a normal-scoped <i>element</i> bean of the
  *       implementation class would fail the deployment.</li>
  *   <li>The adapter-id set ALWAYS comes from the platform's core properties
- *       ({@code adapterTypes()}).</li>
+ *       ({@code adapterIdsOfType()}, see {@link DummyProcessServiceProducer}).</li>
  * </ul>
  */
 @ApplicationScoped
@@ -62,12 +61,8 @@ public class DummyDeploymentServiceProducer {
       @Any final Instance<DummyHealthSource> healthSource) {
 
     return properties
-        .adapterTypes()
-        .entrySet()
+        .adapterIdsOfType(DummyProcessServiceProducer.ADAPTER_TYPE)
         .stream()
-        .filter(adapter -> DummyProcessServiceProducer.ADAPTER_TYPE.equals(adapter.getValue()))
-        .map(Map.Entry::getKey)
-        .sorted()
         .<AdapterDeploymentService<Object, Object>>map(
             adapterId -> new DummyDeploymentService(
                 adapterId, deploymentListeners::stream, io.vanillabp.integration.runtime.support.AdapterCollaboratorsSupport

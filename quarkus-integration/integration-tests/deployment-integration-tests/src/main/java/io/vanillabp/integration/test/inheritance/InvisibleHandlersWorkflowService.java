@@ -1,14 +1,18 @@
 package io.vanillabp.integration.test.inheritance;
 
+import io.vanillabp.extension.sample.SampleNote;
+import io.vanillabp.extension.sample.SampleNoteDetails;
 import io.vanillabp.spi.service.BpmnProcess;
 import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**
- * Two handler methods a developer can read in their own source and VanillaBP cannot: one
- * which is not public, and one which the subclass below overrides without repeating the
- * annotation.
+ * Three handler methods a developer can read in their own source and VanillaBP cannot:
+ * one which is not public, one which the subclass below overrides without repeating the
+ * annotation, and one of an EXTENSION which is not public either - the scan of an
+ * extension's contract reads the public methods of the class the same way, so the method
+ * is lost for the same reason and is named the same way.
  */
 @ApplicationScoped
 @WorkflowService(
@@ -21,6 +25,14 @@ public class InvisibleHandlersWorkflowService extends OverriddenHandlerBase {
       final InvisibleHandlersAggregate aggregate) {
 
     aggregate.setServedBy("tooWellHidden");
+
+  }
+
+  @SampleNote(element = "TheServiceTask")
+  protected SampleNoteDetails noteNobodyReaches(
+      final SampleNoteDetails prefilled) {
+
+    return prefilled;
 
   }
 

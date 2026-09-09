@@ -27,23 +27,26 @@ public class WorkflowTaskRegistryProducer {
   private final io.vanillabp.integration.adapter.migration.sync.AggregateSyncSupport aggregateSync = new io.vanillabp.integration.adapter.migration.sync.AggregateSyncSupport();
 
   /**
-   * @param transactionRegistry Used to read the state of the transaction a
+   * @param platformTransactionRunner The platform's own runner, the bean of
+   *          {@link io.vanillabp.integration.runtime.processservice.TransactionRunnerProducer}
+   *          - it also reads the state of the transaction a
    *          <code>&#64;WorkflowTask</code> handler runs in (a rollback-only mark set
    *          by a transaction annotation of the application)
    * @param springTransactionSupport Whether Spring's <code>&#64;Transactional</code> has
    *          an effect on this application, decided at build time
+   * @param properties The VanillaBP configuration
    * @return The registry
    */
   @Produces
   @Singleton
   @Unremovable
   public WorkflowTaskRegistry workflowTaskRegistry(
-      final jakarta.transaction.TransactionSynchronizationRegistry transactionRegistry,
+      final QuarkusTransactionRunner platformTransactionRunner,
       final SpringTransactionSupport springTransactionSupport,
       final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties) {
 
     return new WorkflowTaskRegistry(
-        new QuarkusTransactionRunner(transactionRegistry), aggregateSync, QuarkusTransactionAnnotations
+        platformTransactionRunner, aggregateSync, QuarkusTransactionAnnotations
             .specs(springTransactionSupport.honored()), properties);
 
   }

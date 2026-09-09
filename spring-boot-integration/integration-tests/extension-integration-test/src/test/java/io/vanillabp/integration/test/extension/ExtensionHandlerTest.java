@@ -182,4 +182,42 @@ public class ExtensionHandlerTest {
 
   }
 
+  @Test
+  @DisplayName("The extension is told which aggregate a process works on and which processes a module has")
+  public void theExtensionReadsWhatTheRegistryKnows() {
+
+    assertEquals(
+        java.util.Optional.of(NotedAggregate.class),
+        handlers.workflowAggregateOf("extension-module", "DummyProcess"));
+    // a process whose workflow service knows nothing about this extension is answered
+    // too - the question is about the application, not about the extension's methods
+    assertEquals(
+        java.util.Optional.of(UnnotedAggregate.class),
+        handlers.workflowAggregateOf("extension-module", "UnnotedProcess"));
+    assertEquals(java.util.Optional.empty(), handlers.workflowAggregateOf("extension-module", "NobodyDeclaredThis"));
+
+    assertTrue(handlers.bpmnProcessesOf("extension-module").contains("DummyProcess"));
+    assertTrue(handlers.bpmnProcessesOf("extension-module").contains("UnnotedProcess"));
+    assertEquals(java.util.List.of(), handlers.bpmnProcessesOf("no-such-module"));
+
+  }
+
+  @Test
+  @DisplayName("The extension is told the name a modeller wrote on a BPMN element")
+  public void theExtensionReadsTheBpmnName() {
+
+    assertEquals(
+        java.util.Optional.of(TestApplication.USER_TASK_NAME),
+        handlers.bpmnTaskNameOf("extension-module", "DummyProcess", TestApplication.USER_TASK_ID));
+    // an element the adapter reported no name for, and a process nothing was deployed
+    // under, are both answered with nothing rather than with a guess
+    assertEquals(
+        java.util.Optional.empty(),
+        handlers.bpmnTaskNameOf("extension-module", "DummyProcess", "Activity_1c9pa8d"));
+    assertEquals(
+        java.util.Optional.empty(),
+        handlers.bpmnTaskNameOf("extension-module", "NobodyDeployedThis", TestApplication.USER_TASK_ID));
+
+  }
+
 }

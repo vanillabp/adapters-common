@@ -22,7 +22,10 @@ import java.util.Collection;
  * <p>
  * <b>Never build the strings yourself:</b> the separator and the composition are
  * the core's business, and the startup validation of colliding identifiers relies
- * on it.
+ * on it. Where the support itself may be absent - a unit test, a component built
+ * without a platform around it - the STATIC methods of the same names take it as
+ * their first argument and answer the plain identifier for a <code>null</code> one,
+ * so nobody writes that rule again.
  * <p>
  * Why scoping happens at the BPMS boundary and nowhere else is decision 9 in the repository's
  * DECISIONS.md.
@@ -147,6 +150,151 @@ public interface NameClashAvoidanceSupport {
       String bpmnProcessId,
       String scopedTaskDefinition,
       String adapterId);
+
+  /**
+   * {@link #scopedProcessId} where the support may be absent - the shape a caller
+   * holding it as a field needs, and the one place the rule "no scoping, plain
+   * identifier" is written down.
+   * <p>
+   * An adapter has the support for every adapter id the platform registered, so
+   * <code>null</code> is what a unit test hands in and what a component built without a
+   * platform around it holds. Answering with the plain identifier is not a fallback but
+   * the correct answer: without a mode there is nothing to prefix by, which is what
+   * {@link NameClashAvoidance#NONE} and {@link NameClashAvoidance#BY_ADAPTER} answer as
+   * well. Writing the check per call site is how two of them end up disagreeing, and a
+   * disagreement here is a query which finds nothing.
+   *
+   * @param scoping The core's name-clash-avoidance support, or <code>null</code>
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The plain BPMN process ID
+   * @param adapterId The adapter ID
+   * @return The scoped ID, or the plain one
+   */
+  static String scopedProcessId(
+      final NameClashAvoidanceSupport scoping,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String adapterId) {
+
+    return scoping == null
+        ? bpmnProcessId
+        : scoping.scopedProcessId(workflowModuleId, bpmnProcessId, adapterId);
+
+  }
+
+  /**
+   * {@link #scopedIdentifier} where the support may be absent - see
+   * {@link #scopedProcessId(NameClashAvoidanceSupport, String, String, String)}.
+   *
+   * @param scoping The core's name-clash-avoidance support, or <code>null</code>
+   * @param workflowModuleId The workflow module ID
+   * @param identifier The plain identifier (may be <code>null</code>)
+   * @param adapterId The adapter ID
+   * @return The scoped identifier, or the plain one
+   */
+  static String scopedIdentifier(
+      final NameClashAvoidanceSupport scoping,
+      final String workflowModuleId,
+      final String identifier,
+      final String adapterId) {
+
+    return scoping == null
+        ? identifier
+        : scoping.scopedIdentifier(workflowModuleId, identifier, adapterId);
+
+  }
+
+  /**
+   * {@link #scopedTaskDefinition} where the support may be absent - see
+   * {@link #scopedProcessId(NameClashAvoidanceSupport, String, String, String)}.
+   *
+   * @param scoping The core's name-clash-avoidance support, or <code>null</code>
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The plain BPMN process ID
+   * @param taskDefinition The plain task definition (may be <code>null</code>)
+   * @param adapterId The adapter ID
+   * @return The scoped task definition, or the plain one
+   */
+  static String scopedTaskDefinition(
+      final NameClashAvoidanceSupport scoping,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    return scoping == null
+        ? taskDefinition
+        : scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+
+  }
+
+  /**
+   * {@link #plainProcessId} where the support may be absent - see
+   * {@link #scopedProcessId(NameClashAvoidanceSupport, String, String, String)}.
+   *
+   * @param scoping The core's name-clash-avoidance support, or <code>null</code>
+   * @param workflowModuleId The workflow module ID
+   * @param scopedBpmnProcessId The ID as the BPMS knows it
+   * @param adapterId The adapter ID
+   * @return The plain BPMN process ID
+   */
+  static String plainProcessId(
+      final NameClashAvoidanceSupport scoping,
+      final String workflowModuleId,
+      final String scopedBpmnProcessId,
+      final String adapterId) {
+
+    return scoping == null
+        ? scopedBpmnProcessId
+        : scoping.plainProcessId(workflowModuleId, scopedBpmnProcessId, adapterId);
+
+  }
+
+  /**
+   * {@link #plainIdentifier} where the support may be absent - see
+   * {@link #scopedProcessId(NameClashAvoidanceSupport, String, String, String)}.
+   *
+   * @param scoping The core's name-clash-avoidance support, or <code>null</code>
+   * @param workflowModuleId The workflow module ID
+   * @param scopedIdentifier The identifier as the BPMS knows it
+   * @param adapterId The adapter ID
+   * @return The plain identifier
+   */
+  static String plainIdentifier(
+      final NameClashAvoidanceSupport scoping,
+      final String workflowModuleId,
+      final String scopedIdentifier,
+      final String adapterId) {
+
+    return scoping == null
+        ? scopedIdentifier
+        : scoping.plainIdentifier(workflowModuleId, scopedIdentifier, adapterId);
+
+  }
+
+  /**
+   * {@link #plainTaskDefinition} where the support may be absent - see
+   * {@link #scopedProcessId(NameClashAvoidanceSupport, String, String, String)}.
+   *
+   * @param scoping The core's name-clash-avoidance support, or <code>null</code>
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The plain BPMN process ID
+   * @param scopedTaskDefinition The task definition as the BPMS knows it
+   * @param adapterId The adapter ID
+   * @return The plain task definition
+   */
+  static String plainTaskDefinition(
+      final NameClashAvoidanceSupport scoping,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String scopedTaskDefinition,
+      final String adapterId) {
+
+    return scoping == null
+        ? scopedTaskDefinition
+        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
+
+  }
 
   /**
    * Fails with a guiding message if the adapter carries configuration which only

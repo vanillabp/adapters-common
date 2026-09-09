@@ -2318,6 +2318,14 @@ configuration is available as the injectable core object `MigrationAdapterProper
 (adapter ids, workflow modules, prioritized adapters), which is usually all an extension
 needs to know about the setup.
 
+An extension bridging to a BPMS needs one more answer from it: which adapter ids one adapter TYPE
+serves, since it registers one bridge per configured engine the way an adapter registers one set of
+beans per engine. `#adapterIdsOfType(adapterType)` is that answer, and filtering `adapterTypes()`
+is not: an id named in `prioritized-adapters` needs no section of its own, and an application
+configuring nothing at all has the id the classpath derives. A migration setup relies on the first
+rule and a single-dependency application on the second, and decision 39 in `DECISIONS.md` says why
+they live in one place.
+
 **What holds the matching and the ordering.**
 `DeploymentServiceTest#extensionWiringServicesAreFilteredAndCalled`,
 `#subtypeExtensionIsNeitherWiredNorStarted` and `#wiringServicesAreSortedByOrder` in the
@@ -2345,13 +2353,14 @@ HandlerContract
     .build();
 ```
 
-|  Part of the contract   |                                                      What it decides                                                      |
-|-------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| annotation type         | which methods belong to the extension; repeatable annotations are supported                                               |
-| `lookupKeys(…)`         | the keys one occurrence names — an EMPTY list means the method's own name, `EVERY_KEY` means every element of the process |
-| `coreParameters(…)`     | which of the parameters VanillaBP binds itself may stand there (`@TaskId`/`@TaskEvent` are deliberately not among them)   |
-| `parameterBinder(…)`    | the parameters of the extension's own SPI, recognized by type or by annotation                                            |
-| `deliversReturnValue()` | whether what a method returns reaches the caller; without it a method has to be `void`                                    |
+|   Part of the contract    |                                                      What it decides                                                      |
+|---------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| annotation type           | which methods belong to the extension; repeatable annotations are supported                                               |
+| `lookupKeys(…)`           | the keys one occurrence names — an EMPTY list means the method's own name, `EVERY_KEY` means every element of the process |
+| `coreParameters(…)`       | which of the parameters VanillaBP binds itself may stand there (`@TaskId`/`@TaskEvent` are deliberately not among them)   |
+| `parameterBinder(…)`      | the parameters of the extension's own SPI, recognized by type or by annotation                                            |
+| `deliversReturnValue()`   | whether what a method returns reaches the caller; without it a method has to be `void`                                    |
+| `validatingAnnotation(…)` | what the extension checks about one occurrence of its annotation, while the scan holds the method carrying it             |
 
 An invocation (`ExtensionHandlers#invoke`) names the keys it accepts — a task definition
 and an element id, say — and the method NAMING any of them runs; where none does, the
@@ -2373,6 +2382,33 @@ Behind it, `CoreParameterBinders` is the one place the workflow aggregate, `@Tas
 the multi-instance context are bound — shared with the scanners of `@WorkflowTask`,
 `@WorkflowStartedByBpms` and `@WorkflowEnded`, which is why a parameter behaves the same
 wherever it stands.
+
+**What the contract cannot describe, the extension checks itself.** An annotation carries
+attributes only the extension understands: one whose value has to name something the extension
+knows, or one a version of the extension does not serve yet.
+`validatingAnnotation(check)` runs such a check once per occurrence, while the scan holds the
+method, and a check refusing by throwing ends the boot with the annotation, the class, the method
+and the extension in front of what it said. Without it an extension walks the classes of the
+application a second time to find the method, and that walk never sees the same methods: both
+scans read the PUBLIC methods of a workflow service class, and everything else about the second
+walk is the extension's own guess about how a bean got there.
+
+**A method the scan cannot reach is named, for an extension's annotation too.** A handler which is
+not public, and an override which repeated no annotation, are lost the same way whether the
+annotation is `@WorkflowTask` or an extension's own, and both leave a developer looking at a method
+they can read in their own source. The startup report therefore runs over the registered handler
+contracts as well as over VanillaBP's own three annotations, once per class and annotation
+(`HandlerMethodsNobodySees`). For an extension the consequence is quieter than an unserved task and
+worse than one: it simply behaves as if the application had never written the method.
+
+**What the registry already knows about the application.** `workflowAggregateOf(module, process)`
+answers the workflow-aggregate class a BPMN process works on, primary and secondary processes
+alike, `bpmnProcessesOf(module)` names every process a `@WorkflowService` declares in a workflow
+module, and `bpmnTaskNameOf(module, process, activityId)` answers the `name` a modeller wrote on an
+element, kept from what the adapter handed to `validateTaskWiring`. Both are what the scan read off the annotations, which is why an extension asks
+instead of scanning the beans again: a second scan has to unwrap the proxies of a platform the
+extension should not have to know about, and it reads a different set of methods than VanillaBP
+does.
 
 #### A service of the extension per workflow aggregate
 
@@ -2430,6 +2466,18 @@ An aggregate nothing can serve is an `IllegalStateException` naming the beans fo
 remedy, and `null` means the application has no outbox at all — `#remediesDescription()` says
 what to add for the platform in use, so the extension ends its own boot with a message a
 developer can act on.
+
+The same holds for the transaction such an entry is written in. `TransactionRunnerResolver` is a
+bean on both platforms, and `#resolveFor(workflowAggregateClass)` answers the runner the workflow's
+own writes go through, which may well be one the APPLICATION contributed: a `TransactionRunnerAware`
+bean for that aggregate, or a runner serving every aggregate no aware bean covers. Where the
+application contributed nothing, the answer is the platform's own runner, so the resolver is the
+entry point in every case and the bare `TransactionRunner` is not: an extension injecting that type
+would be ambiguous the moment an application brings a runner, and it would lose the attribution per
+aggregate it needed in the first place. An extension opening a transaction of its own loses more
+still, namely `beforeCommit`, the rollback-only verdict and the optimistic-locking recognition of
+the platform's own runner. `#describeResolutionFor` says in words which transaction was resolved,
+which is what a startup message of the extension can quote.
 
 **What holds all of this.** `ExtensionHandlerTest` and
 `ExtensionElectionAndConfigurationTest` (Spring Boot, module

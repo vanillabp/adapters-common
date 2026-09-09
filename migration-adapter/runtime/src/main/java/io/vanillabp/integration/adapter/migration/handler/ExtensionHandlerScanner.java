@@ -80,6 +80,8 @@ final class ExtensionHandlerScanner {
     // reflection - lift the check once at scan time
     method.trySetAccessible();
 
+    checkAnnotations(contract, method, annotations, where);
+
     if (!contract.deliversReturnValue() && !method.getReturnType().equals(void.class)) {
       throw new IllegalStateException(
           """
@@ -118,6 +120,32 @@ final class ExtensionHandlerScanner {
 
     return new ExtensionHandlerMethod(
         contract, workflowServiceClass, method, workflowServiceBean, binders, List.copyOf(lookupKeys));
+
+  }
+
+  /**
+   * Lets the extension judge its own annotation while the method carrying it is at
+   * hand. A refusal names where it happened before it says what the extension said, so
+   * a developer reading the boot log finds the method without searching for it.
+   */
+  private static void checkAnnotations(
+      final HandlerContract contract,
+      final Method method,
+      final java.lang.annotation.Annotation[] annotations,
+      final String where) {
+
+    final var check = contract.getAnnotationCheck();
+    if (check == null) {
+      return;
+    }
+    for (final var annotation : annotations) {
+      try {
+        check.check(annotation, method);
+      } catch (final RuntimeException refused) {
+        throw new IllegalStateException(
+            "The %s was refused by the extension itself: %s".formatted(where, refused.getMessage()), refused);
+      }
+    }
 
   }
 

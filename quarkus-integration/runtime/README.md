@@ -5,6 +5,36 @@
 The VanillaBP Quarkus extension's runtime module. It is responsible for bridging to the
 [VanillaBP migration adapter](../../migration-adapter) at runtime.
 
+## The transaction VanillaBP writes in
+
+`TransactionRunnerProducer` builds both halves of it, once for the application, and produces them
+as CDI beans: the platform's own `QuarkusTransactionRunner` (JTA plus the CDI request context
+Panache and Hibernate need on the threads an adapter delivers on) and the
+`TransactionRunnerResolver` saying which runner a given workflow aggregate is written through. The
+process services, `QuarkusPreCommitRegistrar`, the phase-two router and the workflow-task registry
+use those beans rather than building runners of their own, so there is one answer instead of four
+which drift.
+
+What an extension injects is the **resolver**, never a runner. Something writing next to a
+workflow aggregate asks `resolveFor(aggregateClass)` and writes through what comes back: the
+application may have contributed a `TransactionRunnerAware` bean for that aggregate or a runner
+serving every aggregate, and a runner of the extension's own would commit its entry separately
+from the workflow it belongs to. Where the application contributed nothing, the answer is the
+platform's runner, so the resolver is the entry point in every case. The contract is the same on
+Spring Boot, where the resolver is `vanillaBpTransactionRunnerResolver`. An extension in miniature
+asking it, and the guiding refusal of `inCurrent` outside a transaction, is
+`ExtensionEnablementTest`; an application which brought a runner of its own next to that extension
+is `ExtensionNextToApplicationTransactionTest`.
+
+The platform's runner carries `@Typed(QuarkusTransactionRunner.class)`, and that is not
+cosmetic. CDI derives the types of a bean from every supertype of what a producer returns, so
+without it the bean would carry `TransactionRunner` among its types and an application with a
+runner of its own would make every `@Inject TransactionRunner` ambiguous, inside the platform and
+in an extension alike. Cut down to the concrete class, the platform injects it by that class, an
+application's runner stays the only bean of the SPI type, and nobody is tempted to inject the bare
+type. The resolver still takes the platform's runner out of its own second step by identity, so a
+coverage verdict is not silenced by it should the restriction ever be dropped.
+
 ## Running a check right before the commit
 
 A phase-one check of a remote BPMS must not advance the process, but it may ASK - whether the

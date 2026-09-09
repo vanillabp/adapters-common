@@ -356,7 +356,8 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
     if (!classesLookedOverForInvisibleHandlers.add(workflowServiceClass)) {
       return;
     }
-    final var report = HandlerMethodsNobodySees.reportFor(workflowServiceClass);
+    final var report = HandlerMethodsNobodySees
+        .reportFor(workflowServiceClass, HandlerMethodsNobodySees.CORE_HANDLER_ANNOTATIONS);
     if (report != null) {
       log.warn(report);
     }
@@ -489,6 +490,10 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
       final String workflowModuleId,
       final String bpmnProcessId,
       final Collection<BpmnTaskSpec> tasks) {
+
+    // what the modeller wrote on the elements: nothing here decides anything by it, and
+    // an extension asking for it would otherwise parse the same BPMN bytes again
+    extensionHandlers.rememberBpmnTaskNames(workflowModuleId, bpmnProcessId, tasks);
 
     final var key = new RegistryKey(workflowModuleId, bpmnProcessId);
     final var entry = entries.get(key);

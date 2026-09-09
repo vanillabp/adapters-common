@@ -18,11 +18,12 @@ import io.vanillabp.integration.test.inheritance.OverriddenHandlerBase;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Two handler methods which a developer reads in their own source and VanillaBP never sees: a
- * <code>&#64;WorkflowTask</code> method which is not public, and an override which repeated
- * none of the annotations. Both used to end in the wiring validation asking for a method the
- * developer can point at, so the boot now names them, the class each is declared in and what
- * to do about it.
+ * Handler methods which a developer reads in their own source and VanillaBP never sees: a
+ * <code>&#64;WorkflowTask</code> method which is not public, an override which repeated none
+ * of the annotations, and the same defect in the annotation of an EXTENSION. All of them used
+ * to end in a task nobody serves - the extension's one in nothing at all, since an extension
+ * simply behaves as if the application had never written the method - so the boot now names
+ * them, the class each is declared in and what to do about it.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class HandlerMethodsNobodySeesTest {
@@ -45,25 +46,40 @@ public class HandlerMethodsNobodySeesTest {
                 : record.getMessage())
             .filter(message -> message.contains("which VanillaBP does not see"))
             .toList();
-        assertEquals(1, reports.size(), "one report per workflow service class: "
+        assertEquals(2, reports.size(), "one report per workflow service class and handler annotation: "
             + records
                 .stream()
                 .map(java.util.logging.LogRecord::getMessage)
                 .toList());
-        final var report = reports.getFirst();
-        assertTrue(report.contains(InvisibleHandlersWorkflowService.class.getName()), report);
-        assertTrue(report.contains("tooWellHidden"), report);
-        assertTrue(report.contains("is protected"), report);
-        assertTrue(report.contains("Make the method public"), report);
-        assertTrue(report.contains("overriddenTask"), report);
-        assertTrue(report.contains(OverriddenHandlerBase.class.getName()), report);
-        assertTrue(report.contains("carries no annotation of its own"), report);
-        assertTrue(report.contains("Repeat the annotation on the override"), report);
+        final var ownAnnotations = reports
+            .stream()
+            .filter(report -> report.contains("@WorkflowTask"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no report about VanillaBP's own annotations: "
+                + reports));
+        assertTrue(ownAnnotations.contains(InvisibleHandlersWorkflowService.class.getName()), ownAnnotations);
+        assertTrue(ownAnnotations.contains("tooWellHidden"), ownAnnotations);
+        assertTrue(ownAnnotations.contains("is protected"), ownAnnotations);
+        assertTrue(ownAnnotations.contains("Make the method public"), ownAnnotations);
+        assertTrue(ownAnnotations.contains("overriddenTask"), ownAnnotations);
+        assertTrue(ownAnnotations.contains(OverriddenHandlerBase.class.getName()), ownAnnotations);
+        assertTrue(ownAnnotations.contains("carries no annotation of its own"), ownAnnotations);
+        assertTrue(ownAnnotations.contains("Repeat the annotation on the override"), ownAnnotations);
+
+        final var extensionAnnotation = reports
+            .stream()
+            .filter(report -> report.contains("@SampleNote"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no report about the extension's annotation: "
+                + reports));
+        assertTrue(extensionAnnotation.contains("noteNobodyReaches"), extensionAnnotation);
+        assertTrue(extensionAnnotation.contains("is protected"), extensionAnnotation);
+        assertTrue(extensionAnnotation.contains("Make the method public"), extensionAnnotation);
       });
 
   @Test
-  @DisplayName("A handler which is not public and one whose override dropped the annotation are named")
-  public void bothInvisibleHandlersAreReported() {
+  @DisplayName("A handler which is not public, one whose override dropped the annotation, and an extension's own")
+  public void everyInvisibleHandlerIsReported() {
     // the assertion happens on the boot's log records (assertLogRecords above)
   }
 

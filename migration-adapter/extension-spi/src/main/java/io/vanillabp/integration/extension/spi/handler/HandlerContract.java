@@ -57,6 +57,8 @@ public final class HandlerContract {
 
   private final List<HandlerParameterBinder> parameterBinders;
 
+  private final HandlerAnnotationCheck annotationCheck;
+
   private final boolean deliversReturnValue;
 
   private HandlerContract(
@@ -67,6 +69,7 @@ public final class HandlerContract {
     this.lookupKeys = builder.lookupKeys;
     this.coreParameters = Set.copyOf(builder.coreParameters);
     this.parameterBinders = List.copyOf(builder.parameterBinders);
+    this.annotationCheck = builder.annotationCheck;
     this.deliversReturnValue = builder.deliversReturnValue;
 
   }
@@ -136,6 +139,16 @@ public final class HandlerContract {
   }
 
   /**
+   * @return What the extension checks about one occurrence of its annotation while the
+   *         method carrying it is scanned, or <code>null</code> where it checks nothing
+   */
+  public HandlerAnnotationCheck getAnnotationCheck() {
+
+    return annotationCheck;
+
+  }
+
+  /**
    * @return Whether what a method returns is handed back to the caller
    */
   public boolean deliversReturnValue() {
@@ -158,6 +171,8 @@ public final class HandlerContract {
     private final Set<CoreHandlerParameter> coreParameters = new LinkedHashSet<>();
 
     private final List<HandlerParameterBinder> parameterBinders = new java.util.LinkedList<>();
+
+    private HandlerAnnotationCheck annotationCheck;
 
     private boolean deliversReturnValue = false;
 
@@ -218,6 +233,28 @@ public final class HandlerContract {
         final HandlerParameterBinder binder) {
 
       parameterBinders.add(binder);
+      return this;
+
+    }
+
+    /**
+     * What the extension checks about one occurrence of its annotation, run while the
+     * scan holds the method carrying it - once per occurrence, so a repeatable
+     * annotation is checked as often as it is written. A check refusing by throwing
+     * ends the boot with a message naming the annotation, the class, the method and the
+     * extension in front of what the check said.
+     * <p>
+     * This is where an attribute the {@link HandlerContract} cannot describe is
+     * judged. Without it an extension has to walk the classes of the application again
+     * to find the method, and that walk reads different methods than the scan does.
+     *
+     * @param annotationCheck The check
+     * @return This builder
+     */
+    public Builder validatingAnnotation(
+        final HandlerAnnotationCheck annotationCheck) {
+
+      this.annotationCheck = annotationCheck;
       return this;
 
     }

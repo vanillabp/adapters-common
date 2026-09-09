@@ -19,7 +19,8 @@ import jakarta.enterprise.inject.Instance.Handle;
  * <p>
  * Resolution mirrors Spring Boot: the most specific {@link TransactionRunnerAware} bean,
  * then a plain {@link TransactionRunner} bean of the application, then the platform's own
- * runner. Unlike Spring Boot the last step always works, because
+ * runner - which is a bean itself and is therefore taken out of the second step by
+ * identity. Unlike Spring Boot the last step always works, because
  * <code>quarkus-narayana-jta</code> is a hard dependency of this extension - a JTA
  * transaction is available even in an application without any data source.
  * <p>
@@ -179,8 +180,13 @@ public class QuarkusTransactionRunnerResolver implements TransactionRunnerResolv
                   .formatted(aware.declaredClassName()));
     }
 
-    // 2. a plain TransactionRunner bean of the application
-    final var runners = declaredBeansOf(transactionRunners);
+    // 2. a plain TransactionRunner bean of the application - VanillaBP's own platform
+    // runner is a bean as well (TransactionRunnerProducer), and it is not the
+    // application's answer: taking it for one would report the coverage of an
+    // aggregate as the application's business and silence the verdict this class exists
+    // for
+    final var runners = new LinkedList<>(declaredBeansOf(transactionRunners));
+    runners.removeIf(runner -> runner.bean() == platformRunner);
     if (runners.size() == 1) {
       return new Resolution(
           runners

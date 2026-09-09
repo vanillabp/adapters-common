@@ -264,6 +264,14 @@ and quietly ignoring the setting is the one outcome nobody asked for. On your si
 one habit: scope on the way out, at every boundary your BPMS sees, and unscope on the way back,
 the identifiers of an inbound delivery included.
 
+Where you hold the support in a place it may be absent, a unit test or a helper built without a
+platform around it, do not write `scoping == null ? plain : scoping.scoped…` yourself. The same six
+methods exist as STATIC ones taking the support as their first argument
+(`NameClashAvoidanceSupport.scopedProcessId(scoping, module, process, adapterId)`), and they answer
+the plain identifier where there is nothing to scope by. Two hand-written copies of that check
+eventually disagree, and a disagreement here is a query which finds nothing and looks exactly like
+a workflow which does not exist.
+
 Two collaborators arrive as `Optional`, because an application which never asks for them has
 nothing to report to: `workflowEndedInvoker()` and `bpmsInitiatedStartInvoker()`. Work without
 them. Both platform integrations do provide them, so an adapter built without one is nearly always
@@ -290,6 +298,16 @@ arrives here.
 | `unsharedWorkflowAggregateProperties(module, process, names, adapterDefault)` | the identifiers your models read which the aggregate does not share, so the developer hears about it at startup                                                                                            |
 | `unsharedWorkflowAggregatePaths(module, process, paths, adapterDefault)`      | the same question for a whole dotted path, if you can read one out of your model. The core walks the declared types and names the segment which stops the path, or says nothing where they cannot decide   |
 | `resolveWorkflowAggregateIdName(module, process)`                             | the variable name a BPMS without a business key stores the aggregate's id under                                                                                                                            |
+
+A `BpmnTaskSpec` carries a fourth thing next to the activity id, the task definition and whether a
+handler is optional: the `name` attribute the modeller wrote on the element. Fill it. You walk that
+element anyway, and you are the only one who can read your BPMN dialect, so an extension which
+needs the label a person reads in a task list would otherwise parse the same bytes a second time.
+Nothing VanillaBP decides depends on it: the core keeps the names of the tasks you hand to
+`validateTaskWiring` and answers `ExtensionHandlers#bpmnTaskNameOf(module, process, activityId)`
+with them, and an element you pass no name for is answered with nothing rather than with a guess.
+The constructors and the `userTask` factory without a name are unchanged, so an adapter which does
+not read one keeps compiling and keeps behaving as it did.
 
 If your BPMS can start a workflow by itself, ask `BpmsInitiatedStartInvoker` to validate the start
 events you found, and throw where your BPMS cannot report such a start at all: a workflow running
