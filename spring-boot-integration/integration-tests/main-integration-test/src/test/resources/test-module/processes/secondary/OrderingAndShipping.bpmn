@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  One file, two executable processes of one workflow service: 'Ordering' is the primary
+  process the application addresses, 'Shipping' is the called process it declares as a
+  secondary one. A task of 'Shipping' is delivered to the instance of that id, which is
+  what makes the record and the hint of this workflow carry the secondary id.
+-->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Definitions_OrderingAndShipping" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Ordering" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_Ordering">
+      <bpmn:outgoing>Flow_ToOrder</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_ToOrder" sourceRef="StartEvent_Ordering" targetRef="Activity_Order" />
+    <bpmn:serviceTask id="Activity_Order">
+      <bpmn:incoming>Flow_ToOrder</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToShip</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_ToShip" sourceRef="Activity_Order" targetRef="Activity_CallShipping" />
+    <bpmn:callActivity id="Activity_CallShipping" calledElement="Shipping">
+      <bpmn:incoming>Flow_ToShip</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEndOrdering</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:sequenceFlow id="Flow_ToEndOrdering" sourceRef="Activity_CallShipping" targetRef="EndEvent_Ordering" />
+    <bpmn:endEvent id="EndEvent_Ordering">
+      <bpmn:incoming>Flow_ToEndOrdering</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmn:process id="Shipping" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_Shipping">
+      <bpmn:outgoing>Flow_ToAwait</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_ToAwait" sourceRef="StartEvent_Shipping" targetRef="Activity_AwaitShipment" />
+    <bpmn:serviceTask id="Activity_AwaitShipment">
+      <bpmn:incoming>Flow_ToAwait</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEndShipping</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_ToEndShipping" sourceRef="Activity_AwaitShipment" targetRef="EndEvent_Shipping" />
+    <bpmn:endEvent id="EndEvent_Shipping">
+      <bpmn:incoming>Flow_ToEndShipping</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

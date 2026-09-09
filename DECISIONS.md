@@ -86,6 +86,17 @@ workflow and does not report it is a reason to wait out that adapter's
 after the start. The same answer without a hint is a workflow nobody ever heard of, and fails
 immediately.
 
+A hint sits under the BPMN process id of the process which was running when VanillaBP learned the
+answer, and that is not always the id the application addresses. A task of a secondary process is
+delivered to the instance of THAT process, while every `ProcessService` call reaches the primary
+one. The write stays where it is, because it names the process which really ran and because nothing
+then has to be migrated. The READ asks for every id the workflow service serves, the reading
+instance's own id first. All of those processes belong to one workflow aggregate, so a hint written
+under any of them says something about the same workflow, and the own id goes first because a walk
+which just elected wrote its answer there. A hint which turns out to be stale is dropped, and one
+whose workflow ended is marked, under the id it was read from: writing that under the own id would
+leave the entry which will be read again next time saying the old thing.
+
 ### 6. A processed delivery is written down, and a redelivery is answered from the record
 
 A BPMS which delivers at-least-once will deliver a task twice, and the second delivery must not
@@ -750,6 +761,16 @@ is this very record which answers the redeliveries that renew the job's lock - m
 would let that lock expire. A second call inside that window is refused by the outbox' idempotency
 key already (entry 22), and that key is free again once the entry was dispatched: from there on the
 record is what makes a repeated completion the warned no-op it always was.
+
+The record sits under the BPMN process id of the process which DELIVERED the task, and for a task a
+called process handed out that is the secondary id, while the application completes it on the
+primary process service. Reading the own id alone found nothing for exactly those tasks: the
+operation paid the probe this entry exists to save, and the row `markTaskClosed` should have closed
+stayed open, ageing and counting as an open task for good. So the read asks for every BPMN process
+id the workflow service serves, the reading instance's own id first, and the ids a rename left
+behind belong to that list because they are declared. The write moves nowhere. A record still says
+which process handed the task out, which is what the delivery-log store keys on and what makes a
+record written by an older version readable without migrating anything.
 
 What this does not touch: phase two elects by probing, as it always did, so a workflow which
 changed its BPMS between the call and the dispatch is still found. And the adapters keep their

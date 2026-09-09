@@ -201,6 +201,17 @@ for. What a hint is worth is held by
 `InMemoryWorkflowAdapterCacheTest`, and the replacement by an application bean by
 `MigrationElectionTest#applicationProvidedCacheReplacesTheDefault`.
 
+The BPMN process of that key is the one which was running when VanillaBP learned the
+answer, and a task of a secondary process is delivered to the instance of THAT process
+while the application calls its operations on the primary one. So the write stays where it
+is and the READ asks for every id the workflow service serves
+(`WorkflowLocator.setBpmnProcessIdsToReadUnder`, fed from `servedBpmnProcessIds`), the
+reading instance's own id first. A hint found under another id is dropped respectively
+marked where it sits rather than under the own id, because a second entry would leave the
+one which is read next time saying the old thing.
+`WorkflowLocatorTest#aHintOfACalledProcessIsReadAndItsWindowIsWaitedOut` and
+`#aStaleHintOfACalledProcessIsRepairedWhereItLives` hold both halves.
+
 ### An ended workflow lets go of its hint
 
 The end of a workflow used to be an inbound delivery like any other, so it REFRESHED the
@@ -1246,6 +1257,12 @@ the registry decision 25 rejected is decision 30.
   application to complete later. `markTaskClosed` is the note. Both are `default` methods
   answering nothing respectively doing nothing, so a store an application wrote stays valid and
   its election walks as it always did.
+- The record sits under the BPMN process id of the process which DELIVERED the task, and for a task
+  a called process handed out that is the secondary id, while the application completes it on the
+  primary process service. So the read walks every id the workflow service serves
+  (`DeliveryRecords.setBpmnProcessIdsToReadUnder`, fed from `servedBpmnProcessIds`), the reading
+  instance's own first, and so does the note, which stops at the id whose row it marked. The write
+  moves nowhere, so a record still says which process handed the task out.
 - `DeliveryRecords.locate` turns the record into the `Location` the
   walk would have produced: an open record elects the adapter it names, a closed one is the warned
   no-op with the message it always had, and everything else answers `null` and lets
@@ -1294,7 +1311,9 @@ the registry decision 25 rejected is decision 30.
 (`anAggregatePushNamingATaskIsElectedFromTheRecord`,
 `anAggregatePushWithoutATaskProbesAsItAlwaysDid`,
 `aClosedTaskDoesNotDecideAboutTheWorkflowAroundIt`,
-`anAggregatePushLeavesTheRecordOfItsTaskOpen`) and the counter
+`anAggregatePushLeavesTheRecordOfItsTaskOpen`), the record of a called process
+(`aRecordOfACalledProcessAnswersTheOperationOnThePrimaryService`,
+`theRecordOfACalledProcessIsClosedAfterPhaseTwo`) and the counter
 (`anAnswerFromTheRecordIsCounted`); `TaskRecordLookupTest` holds the store side of it and
 `MicrometerVanillaBpMetricsTest#electionsAnsweredFromTheRecordAreCounted` the meter.
 

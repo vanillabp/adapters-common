@@ -1,0 +1,15 @@
+quarkus:
+  datasource:
+    db-kind: h2
+    jdbc:
+      url: jdbc:h2:mem:secondary-delivery;DB_CLOSE_DELAY=-1
+vanillabp:
+  adapters:
+    demo1:
+      type: dummy
+      test: 1
+  workflow-modules:
+    secondary-module:
+      adapters:
+        demo1:
+          resources-location: classpath:processes/secondary

@@ -61,6 +61,13 @@ public class TaskElectionFromDeliveryRecordTest {
 
   private static final String PROCESS = "TestProcess";
 
+  /**
+   * A second process of the same workflow service, called by the primary one. Its
+   * deliveries reach the instance of THIS id, so what they write down carries it, while
+   * the application calls its operations on the primary service.
+   */
+  private static final String SECONDARY_PROCESS = "CalledProcess";
+
   private static final String ADAPTER = "c8";
 
   private static final String AGGREGATE = "4711";
@@ -394,6 +401,22 @@ public class TaskElectionFromDeliveryRecordTest {
   }
 
   /**
+   * The primary process service of a workflow service which also serves a called
+   * process - what the platform integration builds and hands the served ids to.
+   *
+   * @param adapter The one configured adapter
+   * @return The service of the PRIMARY id, which is the one the application calls
+   */
+  private MigrationProcessService<Object> primaryServiceOfAServiceWithACalledProcess(
+      final ProbeAdapter adapter) {
+
+    final var service = serviceWith(adapter, deliveryLog);
+    service.setServedBpmnProcessIds(List.of(PROCESS, SECONDARY_PROCESS));
+    return service;
+
+  }
+
+  /**
    * The record of a task which the handler left open, as the core writes it while the
    * handler runs.
    *
@@ -404,11 +427,28 @@ public class TaskElectionFromDeliveryRecordTest {
       final String adapterId,
       final String taskId) {
 
+    recordOpenTaskOf(adapterId, PROCESS, taskId);
+
+  }
+
+  /**
+   * The same record, written by the instance of the BPMN process which delivered the
+   * task - which is the secondary id where a called process handed the task out.
+   *
+   * @param adapterId The adapter which delivered
+   * @param bpmnProcessId The process which delivered
+   * @param taskId The task the record is about
+   */
+  private void recordOpenTaskOf(
+      final String adapterId,
+      final String bpmnProcessId,
+      final String taskId) {
+
     deliveryLog
         .record(
             new TaskDelivery(
-                "%s|%s|%s|CREATED|%s".formatted(adapterId, MODULE, PROCESS,
-                    taskId), adapterId, MODULE, PROCESS, AGGREGATE, "awaitCompletion", taskId, "COMPLETION_PENDING", null, null, Instant
+                "%s|%s|%s|CREATED|%s".formatted(adapterId, MODULE, bpmnProcessId,
+                    taskId), adapterId, MODULE, bpmnProcessId, AGGREGATE, "awaitCompletion", taskId, "COMPLETION_PENDING", null, null, Instant
                         .now(), null));
 
   }
@@ -721,6 +761,97 @@ public class TaskElectionFromDeliveryRecordTest {
         deliveryLog.recordOfTask(MODULE, PROCESS, AGGREGATE, TASK).orElseThrow().taskClosedAt(),
         "a push completes nothing - the BPMS still hands that task out, and its redeliveries are "
             + "still answered from this record");
+
+  }
+
+  @Test
+  @DisplayName("A task a called process delivered is completed on the primary service without any probe")
+  public void aRecordOfACalledProcessAnswersTheOperationOnThePrimaryService() {
+
+    final var adapter = new ProbeAdapter(ADAPTER);
+    final var service = primaryServiceOfAServiceWithACalledProcess(adapter);
+    recordOpenTaskOf(ADAPTER, SECONDARY_PROCESS, TASK);
+
+    service.completeTask(new Object(), TASK);
+
+    assertEquals(
+        0,
+        adapter.probes.get(),
+        "the record sits under the id of the process which delivered the task, and the read "
+            + "looks there too");
+    assertEquals(
+        1,
+        adapter.operations.phaseOneOf(PhaseOperation.COMPLETE_TASK).size(),
+        "the adapter the record names completes the task as it does for the primary process");
+
+  }
+
+  @Test
+  @DisplayName("A service which serves one process alone still reads that one only")
+  public void aRecordOfAnotherProcessIsNotReadWithoutTheServedIds() {
+
+    final var adapter = new ProbeAdapter(ADAPTER);
+    final var service = serviceWith(adapter, deliveryLog);
+    recordOpenTaskOf(ADAPTER, SECONDARY_PROCESS, TASK);
+
+    service.completeTask(new Object(), TASK);
+
+    assertEquals(
+        1,
+        adapter.probes.get(),
+        "nothing declares that process here, so its records are none of this service's business");
+
+  }
+
+  @Test
+  @DisplayName("The record of a called process is closed after phase two, under the id it lives at")
+  public void theRecordOfACalledProcessIsClosedAfterPhaseTwo() {
+
+    final var adapter = new ProbeAdapter(ADAPTER);
+    final var service = primaryServiceOfAServiceWithACalledProcess(adapter);
+    recordOpenTaskOf(ADAPTER, SECONDARY_PROCESS, TASK);
+
+    service.completeTask(new Object(), TASK);
+    final var planned = outbox.scheduled.get(0);
+    service
+        .executePhaseTwo(PhaseOperation.COMPLETE_TASK, AGGREGATE, planned.adapterId(), planned.args(), false);
+
+    assertNotNull(
+        deliveryLog
+            .recordOfTask(MODULE, SECONDARY_PROCESS, AGGREGATE, TASK)
+            .orElseThrow()
+            .taskClosedAt(),
+        "the row nobody used to find stayed open, counted as an open task and aged forever");
+
+  }
+
+  @Test
+  @DisplayName("A second completion of that task is the warned no-op, still without a probe")
+  public void aClosedRecordOfACalledProcessIsReadTheSameWay() {
+
+    final var adapter = new ProbeAdapter(ADAPTER);
+    final var service = primaryServiceOfAServiceWithACalledProcess(adapter);
+    recordOpenTaskOf(ADAPTER, SECONDARY_PROCESS, TASK);
+    service.completeTask(new Object(), TASK);
+    final var planned = outbox.scheduled.get(0);
+    service
+        .executePhaseTwo(PhaseOperation.COMPLETE_TASK, AGGREGATE, planned.adapterId(), planned.args(), false);
+    final var phaseOneSoFar = adapter.operations.phaseOneOf(PhaseOperation.COMPLETE_TASK).size();
+    // phase two elects by probing whatever a record said in phase one, so what the second
+    // completion may add to is the count the dispatch left behind
+    final var probesSoFar = adapter.probes.get();
+
+    final var messages = loggedBy(() -> service.completeTask(new Object(), TASK));
+
+    assertEquals(probesSoFar, adapter.probes.get(), "nobody is asked about a task VanillaBP closed itself");
+    assertEquals(
+        phaseOneSoFar,
+        adapter.operations.phaseOneOf(PhaseOperation.COMPLETE_TASK).size(),
+        "a no-op reaches no adapter");
+    assertTrue(
+        messages.stream().anyMatch(message -> message.contains("already completed")),
+        "the caller hears the same warning as for the primary process: "
+            + messages);
 
   }
 
