@@ -543,6 +543,12 @@ operations which end that task, because the workflow may well run on. The dispat
 probes as it always did, so a workflow which changed its BPMS in between is still found, and where
 no record exists the walk runs exactly as it always did. It is either right or silent.
 
+The other half of that question is yours. Where it does reach you and your phase one finds the task
+gone, throw `io.vanillabp.spi.process.TaskNotFoundException`. The core raises that type where its
+own probe finds no BPMS holding the task, so an application catches one type whichever of the two
+answered. Your check is often the only thing which can find out: VanillaBP writes the closing mark
+itself, so a task somebody completed outside VanillaBP still has a record saying it is open.
+
 ## 5. What you must never assume
 
 Every line here is a mistake an adapter has made or nearly made.
