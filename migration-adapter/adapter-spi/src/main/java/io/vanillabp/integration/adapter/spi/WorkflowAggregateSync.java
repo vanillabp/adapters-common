@@ -2,6 +2,7 @@ package io.vanillabp.integration.adapter.spi;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Turns a workflow aggregate into the values shared with the BPMS, honoring
@@ -139,6 +140,46 @@ public interface WorkflowAggregateSync {
       final AggregateSyncMode adapterDefault) {
 
     return PathVerdict.undecidable();
+
+  }
+
+  /**
+   * The DECLARED type a path of attributes ends at, asked about the same path
+   * {@link #whatAPathFinds} answers about.
+   * <p>
+   * An adapter sometimes has to know what a shared value IS and not only that it is
+   * shared. A BPMS stores what it is handed, and the format it stores it in may not carry
+   * every Java type back unchanged. Only the adapter knows what its BPMS can store, so
+   * the core answers the type and judges nothing about it.
+   * <p>
+   * There is an answer only where the path reaches a value the BPMS holds. Everywhere
+   * {@link #whatAPathFinds} stops short of one there is nothing to answer about: a value
+   * the sync model keeps back never reaches the BPMS, so nothing of it has to survive the
+   * way there and back. The same holds wherever the declared types cannot decide. An
+   * empty answer therefore means "this cannot be judged" and never "this was checked and
+   * found broken", exactly as the path question words it.
+   * <p>
+   * What comes back is the type the attribute declares. What the BPMS hands back may be
+   * another one, which is the very thing an adapter asks this to find out.
+   * <p>
+   * How the walk reads a path, and where it stays silent, is decision 37 in the
+   * repository's DECISIONS.md.
+   *
+   * @param workflowAggregateClass The workflow-aggregate class (may be
+   *          <code>null</code>)
+   * @param path The segments of the path, the first one read against the aggregate
+   *          itself (may be <code>null</code> or empty)
+   * @param adapterDefault The adapter's default for aggregates carrying no annotation
+   *          of their own
+   * @return The declared type the path ends at, empty wherever the path finds no value
+   *         the BPMS holds; the default implementation answers nothing
+   */
+  default Optional<Class<?>> whatTypeAPathEndsAt(
+      final Class<?> workflowAggregateClass,
+      final List<String> path,
+      final AggregateSyncMode adapterDefault) {
+
+    return Optional.empty();
 
   }
 

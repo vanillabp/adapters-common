@@ -256,10 +256,39 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
       final List<String> path,
       final AggregateSyncMode adapterDefault) {
 
+    return walked(workflowAggregateClass, path, adapterDefault).verdict();
+
+  }
+
+  @Override
+  public Optional<Class<?>> whatTypeAPathEndsAt(
+      final Class<?> workflowAggregateClass,
+      final List<String> path,
+      final AggregateSyncMode adapterDefault) {
+
+    // the same walk answers both questions, so the type and the verdict can never
+    // disagree about a path: a type exists exactly where the walk reached a value
+    return Optional.ofNullable(walked(workflowAggregateClass, path, adapterDefault).declaredType());
+
+  }
+
+  /**
+   * Walks the path once, guarding the arguments and the sync model both questions share.
+   *
+   * @param workflowAggregateClass The type the first segment is read against
+   * @param path The segments
+   * @param adapterDefault The adapter's default
+   * @return What the walk found
+   */
+  private WalkResult walked(
+      final Class<?> workflowAggregateClass,
+      final List<String> path,
+      final AggregateSyncMode adapterDefault) {
+
     if ((workflowAggregateClass == null) || (path == null) || path.isEmpty() || path
         .stream()
         .anyMatch(segment -> (segment == null) || segment.isBlank())) {
-      return PathVerdict.undecidable();
+      return WalkResult.stoppedShort(PathVerdict.undecidable());
     }
     try {
       return walk(workflowAggregateClass, path, adapterDefault);
@@ -272,7 +301,32 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
           String.join(".", path),
           workflowAggregateClass.getName(),
           ambiguousSyncModel.getMessage());
-      return PathVerdict.undecidable();
+      return WalkResult.stoppedShort(PathVerdict.undecidable());
+    }
+
+  }
+
+  /**
+   * What one walk answered: what the path finds, and the declared type it ends at, which
+   * exists only where it reached a value the BPMS holds.
+   *
+   * @param verdict What the path finds
+   * @param declaredType The type of the last segment, <code>null</code> wherever the
+   *          walk found no value
+   */
+  private record WalkResult(
+                            PathVerdict verdict,
+                            Class<?> declaredType) {
+
+    /**
+     * @param verdict Why the path finds no value
+     * @return A walk with no type to report
+     */
+    static WalkResult stoppedShort(
+        final PathVerdict verdict) {
+
+      return new WalkResult(verdict, null);
+
     }
 
   }
@@ -285,9 +339,9 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
    * @param workflowAggregateClass The type the first segment is read against
    * @param path The segments
    * @param adapterDefault The adapter's default
-   * @return What the path finds
+   * @return What the path finds, and the type it ends at
    */
-  private PathVerdict walk(
+  private WalkResult walk(
       final Class<?> workflowAggregateClass,
       final List<String> path,
       final AggregateSyncMode adapterDefault) {
@@ -302,25 +356,25 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
       if (index >= MAX_DEPTH) {
         // the values themselves are cut here (see convert), so whatever the declared
         // types say about this segment says nothing about what the BPMS holds
-        return PathVerdict.undecidable();
+        return WalkResult.stoppedShort(PathVerdict.undecidable());
       }
       if (holdsWhateverItWasGiven(owner)) {
-        return PathVerdict.undecidable();
+        return WalkResult.stoppedShort(PathVerdict.undecidable());
       }
       if (travelsAsASingleValue(owner)) {
         // asked BEFORE the abstract types are refused: 'Number' and 'CharSequence' are
         // abstract and still say everything about what reaches the BPMS
-        return PathVerdict.nothingBelow(segment, index, owner.getSimpleName());
+        return WalkResult.stoppedShort(PathVerdict.nothingBelow(segment, index, owner.getSimpleName()));
       }
       if (owner.isInterface() || Modifier.isAbstract(owner.getModifiers())) {
         // whichever implementation the application assigned decides, and it may well
         // carry the attribute this one has not got
-        return PathVerdict.undecidable();
+        return WalkResult.stoppedShort(PathVerdict.undecidable());
       }
       final var properties = propertiesOf(owner);
       if (properties.isEmpty()) {
         // no readable attribute at all: convert shares the value's text
-        return PathVerdict.nothingBelow(segment, index, owner.getSimpleName());
+        return WalkResult.stoppedShort(PathVerdict.nothingBelow(segment, index, owner.getSimpleName()));
       }
       final var property = properties
           .stream()
@@ -330,22 +384,26 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
         // what VanillaBP 1 resolved and the sync model does not IS an attribute, and
         // one which can never be shared - a field without a getter, and an isX()
         // returning something other than boolean (see isAggregateProperty)
-        return (findField(owner, segment) != null) || (version1OnlyGetter(owner, segment) != null)
-            ? PathVerdict.notShared(segment, index, owner.getSimpleName())
-            : PathVerdict.noSuchAttribute(segment, index, owner.getSimpleName());
+        return WalkResult
+            .stoppedShort(
+                (findField(owner, segment) != null) || (version1OnlyGetter(owner, segment) != null)
+                    ? PathVerdict.notShared(segment, index, owner.getSimpleName())
+                    : PathVerdict.noSuchAttribute(segment, index, owner.getSimpleName()));
       }
       final var synced = property.get().synced() != null
           ? property.get().synced()
           : inherited;
       if (!synced) {
-        return PathVerdict.notShared(segment, index, owner.getSimpleName());
+        return WalkResult.stoppedShort(PathVerdict.notShared(segment, index, owner.getSimpleName()));
       }
       if (index == (path.size() - 1)) {
-        return PathVerdict.aSharedValue();
+        // the type the attribute DECLARES, not the element type a further segment would
+        // be read against: a model reading this path reads the attribute itself
+        return new WalkResult(PathVerdict.aSharedValue(), property.get().getter().getReturnType());
       }
       final var next = typeBehind(property.get().getter().getGenericReturnType());
       if (next == null) {
-        return PathVerdict.undecidable();
+        return WalkResult.stoppedShort(PathVerdict.undecidable());
       }
       owner = next;
       final var ofType = baseModeOf(owner);
@@ -354,7 +412,7 @@ public class AggregateSyncSupport implements WorkflowAggregateSync {
           : synced;
     }
     // unreachable: the last segment answers inside the loop
-    return PathVerdict.undecidable();
+    return WalkResult.stoppedShort(PathVerdict.undecidable());
 
   }
 

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
@@ -599,6 +600,14 @@ public class AggregateSyncSupportTest {
       return new PathOrder();
     }
 
+    /**
+     * A decimal at the TOP level: shared as itself, and an adapter whose BPMS cannot
+     * store it unchanged has to be able to find out that it is one.
+     */
+    public java.math.BigDecimal getTotal() {
+      return new java.math.BigDecimal("120.50");
+    }
+
     @NoSyncWithBPMS
     public PathOrder getHiddenOrder() {
       return new PathOrder();
@@ -720,6 +729,85 @@ public class AggregateSyncSupportTest {
         .whatAPathFinds(PlainAggregate.class, List.of("content"), AggregateSyncMode.NONE);
     assertEquals(Kind.NOT_SHARED, unshared.kind());
     assertEquals("content", unshared.segment());
+
+  }
+
+  private Optional<Class<?>> typeAtTheEndOf(
+      final Class<?> aggregateClass,
+      final String path) {
+
+    return testee
+        .whatTypeAPathEndsAt(aggregateClass, List.of(path.split("\\.")), AggregateSyncMode.FULL);
+
+  }
+
+  @Test
+  @DisplayName("A path reaching a shared value is answered with the type that attribute declares")
+  public void aSharedValueIsAnsweredWithItsDeclaredType() {
+
+    // the case an adapter asks about: a decimal at the top level, which a BPMS may
+    // store in a format that hands something else back
+    assertEquals(Optional.of(java.math.BigDecimal.class), typeAtTheEndOf(PathAggregate.class, "total"));
+    // and the same question two levels down
+    assertEquals(Optional.of(String.class), typeAtTheEndOf(PathAggregate.class, "order.customer.name"));
+    assertEquals(
+        Optional.of(java.math.BigDecimal.class),
+        typeAtTheEndOf(PathAggregate.class, "order.items.price"));
+    // an attribute holding a structure declares a type as well
+    assertEquals(Optional.of(PathOrder.class), typeAtTheEndOf(PathAggregate.class, "order"));
+
+  }
+
+  @Test
+  @DisplayName("A path which finds no value in the BPMS has no type to name")
+  public void aPathFindingNoValueNamesNoType() {
+
+    // nothing the sync model keeps back ever reaches the BPMS, so nothing of it has to
+    // survive the way there and back
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "hiddenOrder.customer.name").isEmpty());
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "order.internalCode").isEmpty());
+    // a date travels as its text, so 'year' is no value of the BPMS at all
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "order.dueDate.year").isEmpty());
+    // a name which is no attribute of the aggregate may be a variable of the model
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "somethingTheModelProvides").isEmpty());
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "order.customer.town").isEmpty());
+
+  }
+
+  @Test
+  @DisplayName("Wherever the declared types cannot decide, no type is named either")
+  public void whatCannotBeDecidedNamesNoType() {
+
+    // a map answers whatever key it happens to hold
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "order.labels.kind").isEmpty());
+    // an interface is whichever implementation the application assigned
+    assertTrue(typeAtTheEndOf(PathAggregate.class, "order.address.city").isEmpty());
+    // the values are cut at the nesting limit, so a segment past it says nothing about
+    // what the BPMS holds, while the segment right at the limit is answered
+    assertEquals(
+        Optional.of(CyclicAggregate.class),
+        typeAtTheEndOf(CyclicAggregate.class,
+            String.join(".", java.util.Collections.nCopies(AggregateSyncSupport.MAX_DEPTH, "self"))));
+    assertTrue(
+        typeAtTheEndOf(
+            CyclicAggregate.class,
+            String.join(".", java.util.Collections.nCopies(AggregateSyncSupport.MAX_DEPTH + 1, "self"))).isEmpty());
+    // and nothing to walk at all
+    assertTrue(testee.whatTypeAPathEndsAt(PathAggregate.class, List.of(), AggregateSyncMode.FULL).isEmpty());
+    assertTrue(testee.whatTypeAPathEndsAt(null, List.of("total"), AggregateSyncMode.FULL).isEmpty());
+
+  }
+
+  @Test
+  @DisplayName("The adapter's default decides whether a path has a type at all")
+  public void theAdapterDefaultDecidesWhetherAPathHasAType() {
+
+    assertEquals(
+        Optional.of(String.class),
+        testee.whatTypeAPathEndsAt(PlainAggregate.class, List.of("content"), AggregateSyncMode.FULL));
+    assertTrue(
+        testee.whatTypeAPathEndsAt(PlainAggregate.class, List.of("content"), AggregateSyncMode.NONE).isEmpty(),
+        "an attribute this adapter does not share reaches no BPMS");
 
   }
 
