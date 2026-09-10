@@ -222,6 +222,40 @@ public interface WorkflowTaskWiring {
   }
 
   /**
+   * Which type each of the given paths ends at, so an adapter can judge what its BPMS
+   * makes of the value.
+   * <p>
+   * A BPMS stores what VanillaBP hands it, and the format it stores it in may hand
+   * something else back. Whether that matters is the adapter's question, because only the
+   * adapter knows which types its BPMS carries unchanged. The core knows the types and
+   * answers them, one object per deployed process, the way it answers every other question
+   * about a model.
+   * <p>
+   * A path is answered only where it reaches a value the BPMS holds. A path the sync model
+   * cuts short is missing here, because such a value never leaves the application, and so
+   * is a path the declared types cannot decide, which is the same silence
+   * {@link #unsharedWorkflowAggregatePaths} keeps. The two questions read the same walk, so
+   * a path reported there is never answered here.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param paths The paths read by the model, segments separated by dots
+   * @param adapterDefault What this adapter shares unless the application says
+   *          otherwise
+   * @return The declared type per path, keyed by the path as it was given and holding
+   *         only the paths which reach a value; empty if the BPMN process is unknown
+   */
+  default java.util.Map<String, Class<?>> declaredTypesOfWorkflowAggregatePaths(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final java.util.Collection<String> paths,
+      final io.vanillabp.integration.adapter.spi.AggregateSyncMode adapterDefault) {
+
+    return java.util.Map.of();
+
+  }
+
+  /**
    * The process variables the <code>&#64;WorkflowTask</code> method(s) serving the
    * given task definition (or BPMN activity ID) read with
    * <code>&#64;TaskParam</code> - the names as the annotation spells them.

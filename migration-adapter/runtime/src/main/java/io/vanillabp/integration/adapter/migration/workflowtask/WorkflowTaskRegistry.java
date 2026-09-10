@@ -1532,4 +1532,30 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
 
   }
 
+  @Override
+  public Map<String, Class<?>> declaredTypesOfWorkflowAggregatePaths(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final java.util.Collection<String> paths,
+      final io.vanillabp.integration.adapter.spi.AggregateSyncMode adapterDefault) {
+
+    if ((aggregateSync == null) || (paths == null) || paths.isEmpty()) {
+      return Map.of();
+    }
+    final var entry = entries.get(new RegistryKey(workflowModuleId, bpmnProcessId));
+    if ((entry == null) || (entry.processService == null)) {
+      return Map.of();
+    }
+    final var aggregateClass = entry.processService.getWorkflowAggregateClass();
+    final var types = new java.util.LinkedHashMap<String, Class<?>>();
+    paths
+        .stream()
+        .distinct()
+        .forEach(path -> aggregateSync
+            .whatTypeAPathEndsAt(aggregateClass, List.of(path.split("\\.", -1)), adapterDefault)
+            .ifPresent(type -> types.put(path, type)));
+    return types;
+
+  }
+
 }

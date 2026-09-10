@@ -1265,6 +1265,14 @@ public class WorkflowTaskRegistryTest {
       return "not for the engine";
     }
 
+    /**
+     * A decimal, the type an adapter asks about: a BPMS may store it in a format which
+     * hands something else back.
+     */
+    public java.math.BigDecimal getTotal() {
+      return new java.math.BigDecimal("120.50");
+    }
+
     public SharingShipment getShipment() {
       return new SharingShipment();
     }
@@ -1443,6 +1451,50 @@ public class WorkflowTaskRegistryTest {
             MODULE,
             "NoSuchProcess",
             List.of("shipment.carrierSecret"),
+            io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL));
+
+  }
+
+  @Test
+  @DisplayName("A path reaching a shared value is answered with the type it ends at, and nothing else is")
+  public void declaredTypesOfAggregatePaths() {
+
+    final var registryWithSync = registryServingTheSharingAggregate();
+
+    final var types = registryWithSync.declaredTypesOfWorkflowAggregatePaths(
+        MODULE,
+        "SharingProcess",
+        List.of(
+            "total",
+            "shipment.trackingCode",
+            "shipment.carrierSecret",
+            "shipment.town",
+            "internalNote",
+            "somethingTheModelProvides"),
+        io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL);
+
+    // only the paths which reach a value the BPMS holds are answered: what the sync
+    // model keeps back never gets there, and a name which is no attribute never was one
+    assertEquals(Set.of("total", "shipment.trackingCode"), types.keySet());
+    assertEquals(java.math.BigDecimal.class, types.get("total"));
+    assertEquals(String.class, types.get("shipment.trackingCode"));
+
+    // an unknown process yields nothing rather than a guess
+    assertEquals(
+        Map.of(),
+        registryWithSync.declaredTypesOfWorkflowAggregatePaths(
+            MODULE,
+            "NoSuchProcess",
+            List.of("total"),
+            io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL));
+
+    // and a core running without a sync model answers nothing at all
+    assertEquals(
+        Map.of(),
+        registry.declaredTypesOfWorkflowAggregatePaths(
+            MODULE,
+            PROCESS,
+            List.of("total"),
             io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL));
 
   }
