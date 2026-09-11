@@ -235,6 +235,21 @@ disable an unwanted default via its `enabled` flag:
    `GruelboxOutboxSchemaHandoverTest` the handover to an application-managed schema,
    `GruelboxDeduplicationWindowTest` the released key of a dispatched entry, and
    `EnableSchedulingRegressionTest#noVanillaBpTaskSchedulerBean` the private executor.
+   The submitter of this outbox is a bean of its own
+   (`GruelboxRedispatchAwareSubmitter`, `vanillaBpGruelboxSubmitter`), because the
+   dispatcher needs the very submitter the outbox was built with. Gruelbox hands an
+   entry to its submitter as soon as the scheduling transaction commits, while Spring
+   Boot opens the web server before VanillaBP deployed its models. A start arriving in
+   that window reaches a BPMS which does not hold the process, and an adapter reports
+   that as a failure no repetition can fix, so the entry would be blocked although the
+   next attempt would have worked. The submitter therefore keeps such an entry:
+   gruelbox treats a submitter which does not take the work like a busy executor, the
+   row stays committed and due, and the first `flush()` carries it. Building the
+   dispatcher closes that gate, starting its poller opens it for good. An outbox built
+   without a dispatcher keeps dispatching right after the commit, so a test or an
+   application flushing the outbox itself does not wait for a gate nobody opens. What
+   it costs is one poll interval for the entries of that window, once per application
+   start. Held by `GruelboxHoldsEntriesBackUntilDispatchingStartedTest`.
    What gruelbox has no idea of is VanillaBP's classification of a failure, so
    `GruelboxPhaseTwoFailureListener` is registered on the outbox: it blocks an entry the
    adapter called permanent (`PhaseTwoPermanentFailure`) after the first attempt by

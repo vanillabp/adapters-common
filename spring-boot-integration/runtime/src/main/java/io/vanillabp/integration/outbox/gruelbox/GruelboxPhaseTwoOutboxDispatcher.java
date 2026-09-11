@@ -13,7 +13,6 @@ import com.gruelbox.transactionoutbox.TransactionOutbox;
 import io.vanillabp.integration.adapter.migration.config.PhaseTwoOutboxProperties;
 import io.vanillabp.integration.deployment.SpringBootDeploymentService;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -25,6 +24,13 @@ import lombok.extern.slf4j.Slf4j;
  * started on {@link ApplicationReadyEvent} (the first run also dispatches entries
  * left over from a previous crashed instance) and uses the poll interval configured by
  * <code>vanillabp.outbox.poll-interval</code>.
+ * <p>
+ * Starting the poller is also what lets an outbox built with VanillaBP's
+ * {@link GruelboxRedispatchAwareSubmitter} dispatch after a commit at all. That
+ * submitter keeps its entries until this dispatcher runs. A workflow started while
+ * Spring Boot answers requests and the models are still on their way to the BPMS
+ * therefore waits for the first poll, instead of reaching a BPMS which cannot know
+ * it.
  * <p>
  * The poller runs on a private single-thread daemon executor - no
  * {@link org.springframework.scheduling.TaskScheduler} bean is registered or used, so
@@ -41,7 +47,6 @@ import lombok.extern.slf4j.Slf4j;
  * thread, so the entries of every other workflow are dispatched while that one is due
  * again.
  */
-@RequiredArgsConstructor
 @Slf4j
 public class GruelboxPhaseTwoOutboxDispatcher {
 
@@ -49,11 +54,58 @@ public class GruelboxPhaseTwoOutboxDispatcher {
 
   private final PhaseTwoOutboxProperties properties;
 
+  /**
+   * The submitter whose gate is opened when polling starts, <code>null</code> for an
+   * outbox built with a submitter of somebody else's.
+   */
+  private final GruelboxRedispatchAwareSubmitter submitter;
+
   private ScheduledExecutorService poller;
 
   /**
+   * Polls an outbox which dispatches right after a commit, whoever built it. Use the
+   * constructor taking VanillaBP's submitter to have the entries of the window before
+   * the deployment wait for the first poll.
+   *
+   * @param transactionOutbox The outbox to poll
+   * @param properties The bound <code>vanillabp.outbox</code> section
+   */
+  public GruelboxPhaseTwoOutboxDispatcher(
+      final TransactionOutbox transactionOutbox,
+      final PhaseTwoOutboxProperties properties) {
+
+    this(transactionOutbox, properties, null);
+
+  }
+
+  /**
+   * Polls the outbox and holds its submitter back until it does. Building this
+   * dispatcher is what closes the submitter's gate, so a submitter never waits for a
+   * dispatcher which does not exist (see
+   * {@link GruelboxRedispatchAwareSubmitter}).
+   *
+   * @param transactionOutbox The outbox to poll
+   * @param properties The bound <code>vanillabp.outbox</code> section
+   * @param submitter The submitter the outbox was built with
+   */
+  public GruelboxPhaseTwoOutboxDispatcher(
+      final TransactionOutbox transactionOutbox,
+      final PhaseTwoOutboxProperties properties,
+      final GruelboxRedispatchAwareSubmitter submitter) {
+
+    this.transactionOutbox = transactionOutbox;
+    this.properties = properties;
+    this.submitter = submitter;
+    if (submitter != null) {
+      submitter.holdBackUntilDispatchingStarted();
+    }
+
+  }
+
+  /**
    * Starts the fixed-delay poller. The first run is executed immediately, dispatching
-   * committed-but-unprocessed entries of a previously crashed instance. The listener
+   * committed-but-unprocessed entries of a previously crashed instance and those the
+   * submitter kept while the application was starting. The listener
    * order guarantees that workflow processing started BEFORE any recovered entry is
    * dispatched (see
    * {@link SpringBootDeploymentService#OUTBOX_DISPATCHER_LISTENER_ORDER}).
@@ -62,6 +114,12 @@ public class GruelboxPhaseTwoOutboxDispatcher {
   @EventListener(ApplicationReadyEvent.class)
   public void startPolling() {
 
+    // opened before the poller starts, because a flush hands what it picked up to
+    // this same submitter: a gate still closed would keep those entries, and each of
+    // them would be due again only after 'attempt-frequency' instead of at once
+    if (submitter != null) {
+      submitter.dispatchingStarted();
+    }
     poller = Executors.newSingleThreadScheduledExecutor(runnable -> {
       final var thread = new Thread(runnable, "vanillabp-outbox");
       thread.setDaemon(true);

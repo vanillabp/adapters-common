@@ -78,7 +78,10 @@ import jakarta.persistence.EntityManagerFactory;
  * than accepted: {@link GruelboxPhaseTwoDispatchBean} waits the window out on the
  * dispatching thread. The {@link PhaseTwoCall#args()} map travels in its serialized
  * form because gruelbox's invocation serializer only accepts scalar parameter types
- * (see {@link GruelboxPhaseTwoDispatch}).
+ * (see {@link GruelboxPhaseTwoDispatch}). What this store does like the own ones is
+ * wait for VanillaBP: its {@link GruelboxRedispatchAwareSubmitter} keeps an entry
+ * until the dispatcher below starts, so nothing is carried to a BPMS which has not
+ * seen the models yet.
  */
 @AutoConfiguration(
     after = JpaSpringDataUtilConfiguration.class,
@@ -112,11 +115,33 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
   public static final String DEFAULT_TRANSACTION_OUTBOX_BEAN_NAME = "vanillaBpTransactionOutbox";
 
   /**
+   * The name of the submitter the default outbox hands its entries to. It is a bean of
+   * its own because the dispatcher needs the very submitter the outbox was built with:
+   * it is the one which holds entries back until dispatching starts.
+   */
+  public static final String DEFAULT_SUBMITTER_BEAN_NAME = "vanillaBpGruelboxSubmitter";
+
+  /**
    * The table gruelbox stores outbox entries in unless
    * <code>vanillabp.outbox.jdbc.table</code> names another one - and the only table
    * gruelbox's own schema migration ever creates.
    */
   public static final String DEFAULT_OUTBOX_TABLE_NAME = "TXNO_OUTBOX";
+
+  /**
+   * The submitter of the default outbox: it carries "this entry was attempted before"
+   * to the dispatch bean and it keeps entries until VanillaBP starts dispatching (see
+   * {@link GruelboxRedispatchAwareSubmitter}).
+   *
+   * @return The submitter
+   */
+  @Bean(DEFAULT_SUBMITTER_BEAN_NAME)
+  @ConditionalOnMissingBean(name = DEFAULT_SUBMITTER_BEAN_NAME)
+  public GruelboxRedispatchAwareSubmitter vanillaBpGruelboxSubmitter() {
+
+    return new GruelboxRedispatchAwareSubmitter(Submitter.withDefaultExecutor());
+
+  }
 
   /**
    * The gruelbox {@link TransactionOutbox} enlisting entries in Spring-managed JDBC
@@ -135,6 +160,7 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
    *          optional, so the bean may legitimately be absent
    * @param applicationListeners The outbox listeners the application brings, which keep
    *          being called next to VanillaBP's own one
+   * @param submitter The submitter of this outbox
    * @return The transaction outbox
    */
   @Bean(DEFAULT_TRANSACTION_OUTBOX_BEAN_NAME)
@@ -145,7 +171,8 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
       final DataSource dataSource,
       final VanillaBpConfigurationProperties vanillaBpProperties,
       final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics,
-      final ObjectProvider<TransactionOutboxListener> applicationListeners) {
+      final ObjectProvider<TransactionOutboxListener> applicationListeners,
+      @Qualifier(DEFAULT_SUBMITTER_BEAN_NAME) final GruelboxRedispatchAwareSubmitter submitter) {
 
     final var properties = vanillaBpProperties.getOutbox();
     // the gruelbox migration always targets the DEFAULT table (TXNO_OUTBOX) - a
@@ -174,9 +201,9 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
         .instantiator(new SpringInstantiator(applicationContext))
         .persistor(persistor)
         .listener(outboxListener(persistor, transactionManager, metrics, applicationListeners))
-        // carries "this entry was attempted before" to the dispatch bean - the
-        // START re-dispatch mitigation's signal (see the submitter's javadoc)
-        .submitter(new GruelboxRedispatchAwareSubmitter(Submitter.withDefaultExecutor()))
+        // carries "this entry was attempted before" to the dispatch bean and keeps
+        // entries until VanillaBP dispatches (see the submitter's javadoc)
+        .submitter(submitter)
         .attemptFrequency(properties.getAttemptFrequency())
         .blockAfterAttempts(properties.getBlockAfterAttempts())
         .retentionThreshold(properties.getRetention())
@@ -268,6 +295,8 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
    * @param vanillaBpProperties The bound <code>vanillabp.*</code> tree carrying the
    *          <code>vanillabp.outbox</code> section (registered here as well so the
    *          outbox works in contexts without the full VanillaBP auto-configuration)
+   * @param submitter The submitter the outbox was built with, held back until this
+   *          dispatcher starts polling
    * @return The dispatcher polling the outbox for recovery, retries and retention
    *         cleanup (private single-thread executor - no
    *         {@link org.springframework.scheduling.TaskScheduler} involved)
@@ -275,9 +304,10 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
   @Bean
   public GruelboxPhaseTwoOutboxDispatcher vanillaBpGruelboxPhaseTwoOutboxDispatcher(
       @Qualifier(DEFAULT_TRANSACTION_OUTBOX_BEAN_NAME) final TransactionOutbox transactionOutbox,
-      final VanillaBpConfigurationProperties vanillaBpProperties) {
+      final VanillaBpConfigurationProperties vanillaBpProperties,
+      @Qualifier(DEFAULT_SUBMITTER_BEAN_NAME) final GruelboxRedispatchAwareSubmitter submitter) {
 
-    return new GruelboxPhaseTwoOutboxDispatcher(transactionOutbox, vanillaBpProperties.getOutbox());
+    return new GruelboxPhaseTwoOutboxDispatcher(transactionOutbox, vanillaBpProperties.getOutbox(), submitter);
 
   }
 
