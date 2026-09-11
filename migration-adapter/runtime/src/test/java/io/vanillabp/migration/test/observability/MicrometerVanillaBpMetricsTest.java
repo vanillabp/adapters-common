@@ -163,6 +163,41 @@ public class MicrometerVanillaBpMetricsTest {
   }
 
   @Test
+  @DisplayName("A blocked entry is counted per store, because the backlog gauge falls when one is")
+  public void blockedOutboxEntriesAreCounted() {
+
+    final var registry = new SimpleMeterRegistry();
+    final var metrics = new MicrometerVanillaBpMetrics();
+    metrics.bindTo(registry);
+
+    metrics.outboxEntryBlocked("JdbcPhaseTwoOutbox", "START_WORKFLOW", true);
+    metrics.outboxEntryBlocked("JdbcPhaseTwoOutbox", "START_WORKFLOW", false);
+    metrics.outboxEntryBlocked("GruelboxPhaseTwoOutbox", "START_WORKFLOW", true);
+
+    Assertions
+        .assertEquals(
+            1.0,
+            registry
+                .get(VanillaBpMetrics.OUTBOX_BLOCKED)
+                .tag(VanillaBpMetrics.TAG_STORE, "JdbcPhaseTwoOutbox")
+                .tag(VanillaBpMetrics.TAG_PERMANENT, "true")
+                .counter()
+                .count(),
+            "an entry blocked on the adapter's verdict is told apart from one whose attempts ran out");
+    Assertions
+        .assertEquals(
+            1.0,
+            registry
+                .get(VanillaBpMetrics.OUTBOX_BLOCKED)
+                .tag(VanillaBpMetrics.TAG_STORE, "GruelboxPhaseTwoOutbox")
+                .tag(VanillaBpMetrics.TAG_PERMANENT, "true")
+                .counter()
+                .count(),
+            "an application running two stores sees which of them lost the operation");
+
+  }
+
+  @Test
   @DisplayName("A refused schedule is counted per operation")
   public void discardedSchedulesAreCounted() {
 
