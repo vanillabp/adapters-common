@@ -58,7 +58,7 @@ public class CollidingIdentifiersOfWorkflowModulesTest {
   private static ModelIdentifier message(
       final String name) {
 
-    return new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, name);
+    return new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, name, null);
 
   }
 
@@ -195,7 +195,7 @@ public class CollidingIdentifiersOfWorkflowModulesTest {
               .reportIdentifiersTheModelsDeclare(
                   ADAPTER,
                   PAYMENTS,
-                  List.of(new ModelIdentifier(ScopedIdentifierKind.ERROR_CODE, "PaymentFailed")));
+                  List.of(new ModelIdentifier(ScopedIdentifierKind.ERROR_CODE, "PaymentFailed", null)));
         });
 
     assertEquals(List.of(), events, () -> "a BPMS keeps a message name and an error code apart: "
@@ -221,11 +221,131 @@ public class CollidingIdentifiersOfWorkflowModulesTest {
                   java.util.Arrays
                       .asList(
                           null,
-                          new ModelIdentifier(null, "PaymentReceived"),
-                          new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, null)));
+                          new ModelIdentifier(null, "PaymentReceived", null),
+                          new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, null, null)));
         });
 
     assertEquals(List.of(), events, () -> String.valueOf(events));
+
+  }
+
+  private static ModelIdentifier taskDefinition(
+      final String name,
+      final String bpmnProcessId) {
+
+    return new ModelIdentifier(ScopedIdentifierKind.TASK_DEFINITION, name, bpmnProcessId);
+
+  }
+
+  @Test
+  @DisplayName("One task definition in two workflow modules is the job type two workers fetch")
+  public void twoModulesSharingATaskDefinitionAreReported() {
+
+    final var testee = serviceWith(NameClashAvoidance.NONE);
+
+    // where a BPMS subscribes to a task definition cluster-wide, which a Camunda 8 job type
+    // is, this is the most expensive collision of the set: the worker of one module fetches
+    // the jobs of the other
+    final var reported = theOnlyWarning(
+        recorded(
+            () -> {
+              testee
+                  .reportIdentifiersTheModelsDeclare(
+                      ADAPTER,
+                      LOANS,
+                      List.of(taskDefinition("scoreApplicant", "RiskAssessment")));
+              testee
+                  .reportIdentifiersTheModelsDeclare(
+                      ADAPTER,
+                      PAYMENTS,
+                      List.of(taskDefinition("scoreApplicant", "Settlement")));
+            }));
+
+    assertTrue(reported.contains("task definition 'scoreApplicant'"), reported);
+    // both sides are named with the process the name was read from, because that is where a
+    // developer has to go
+    assertTrue(reported.contains("(BPMN process 'RiskAssessment')"), reported);
+    assertTrue(reported.contains("(BPMN process 'Settlement')"), reported);
+    assertTrue(reported.contains("'"
+        + PAYMENTS
+        + "'"), reported);
+
+  }
+
+  @Test
+  @DisplayName("Task definitions of one workflow module are its own business")
+  public void oneModuleMayShareATaskDefinitionAcrossItsProcesses() {
+
+    final var testee = serviceWith(NameClashAvoidance.NONE);
+
+    // the same name in two processes of one module: reusing one task implementation across
+    // processes is an anti-pattern, and an application doing it deliberately has said so -
+    // it is not a clash between two modules
+    final var events = recorded(
+        () -> testee
+            .reportIdentifiersTheModelsDeclare(
+                ADAPTER,
+                LOANS,
+                List.of(taskDefinition("scoreApplicant", "RiskAssessment"), taskDefinition(
+                    "scoreApplicant",
+                    "Rescoring"))));
+
+    assertEquals(List.of(), events, () -> String.valueOf(events));
+
+  }
+
+  @Test
+  @DisplayName("Prefixing scopes a task definition by its process as well, so nothing collides")
+  public void prefixedTaskDefinitionsOfTwoModulesAreQuiet() {
+
+    final var testee = serviceWith(NameClashAvoidance.USE_PREFIX);
+
+    final var events = recorded(
+        () -> {
+          testee
+              .reportIdentifiersTheModelsDeclare(
+                  ADAPTER,
+                  LOANS,
+                  List.of(taskDefinition("scoreApplicant", "RiskAssessment")));
+          testee
+              .reportIdentifiersTheModelsDeclare(
+                  ADAPTER,
+                  PAYMENTS,
+                  List.of(taskDefinition("scoreApplicant", "Settlement")));
+        });
+
+    assertEquals(List.of(), events, () -> String.valueOf(events));
+
+  }
+
+  @Test
+  @DisplayName("A job type of a held version is held against what a worker asks for today")
+  public void aHeldVersionSharingATaskDefinitionIsReported() {
+
+    final var testee = serviceWith(NameClashAvoidance.NONE);
+    testee
+        .reportIdentifiersTheModelsDeclare(ADAPTER, LOANS, List.of(taskDefinition("scoreApplicant", "RiskAssessment")));
+
+    // a job type of a version workflows still run on is live, not dormant
+    final var reported = theOnlyWarning(
+        recorded(
+            () -> testee
+                .reportIdentifiersOfHeldVersion(
+                    ADAPTER,
+                    PAYMENTS,
+                    "Settlement",
+                    "4",
+                    2L,
+                    List.of(taskDefinition("scoreApplicant", "Settlement")))));
+
+    assertTrue(reported.contains("task definition 'scoreApplicant'"), reported);
+    assertTrue(reported.contains("'"
+        + LOANS
+        + "'"), reported);
+    // the process of the held version and the process which deploys the name today
+    assertTrue(reported.contains("(BPMN process 'Settlement')"), reported);
+    assertTrue(reported.contains("(BPMN process 'RiskAssessment')"), reported);
+    assertTrue(reported.contains("2 workflows still running"), reported);
 
   }
 

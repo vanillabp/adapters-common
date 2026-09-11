@@ -251,7 +251,8 @@ public class StartupQuestionCostTest {
 
     final var declared = java.util.stream.IntStream
         .range(0, identifiers)
-        .mapToObj(number -> new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, "Message%d".formatted(number)))
+        .mapToObj(
+            number -> new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, "Message%d".formatted(number), null))
         .toList();
     final var adapter = io.vanillabp.integration.adapter.migration.config.AdapterConfigProperties.ofType("camunda7");
     adapter.setNameClashAvoidance(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE);
@@ -299,7 +300,7 @@ public class StartupQuestionCostTest {
         .build();
     properties.validateAndLink();
     final var scoping = new NameClashAvoidanceService(properties);
-    final var declared = List.of(new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived"));
+    final var declared = List.of(new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived", null));
     scoping.reportIdentifiersTheModelsDeclare("c7", MODULE, declared);
 
     // the same finding on a version two workflows run on and on one which carries a

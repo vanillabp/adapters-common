@@ -598,7 +598,7 @@ public class OldProcessVersionsTest {
   public void theIdentifiersOfAHeldVersionAreReported() {
 
     final var message = new io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier(
-        io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived");
+        io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived", null);
     catalog.identifiersPerVersion = Map.of("1", List.of(message), "2", List.of(message));
     catalog.instancesPerVersion = Map.of("1", 4L);
     final var reported = new java.util.LinkedHashMap<String, Long>();
