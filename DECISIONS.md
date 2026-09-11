@@ -182,12 +182,13 @@ Only the adapter can read its BPMS's errors, and only the core knows what to do 
 So `MigratableProcessService.isPhaseTwoFailureRepeatable` answers one question, defaulting to
 repeatable, and `MigrationProcessService.runPhaseTwo` turns a `false` into a
 `PhaseTwoPermanentFailure` which every store blocks the entry on immediately instead of retrying
-it ten times. The same cut runs through the concurrent-token check and the transaction annotations:
-the adapter or the platform integration reports facts, the core decides.
+it as often as `vanillabp.outbox.block-after-attempts` allows, fifty times by default. The same cut
+runs through the concurrent-token check and the transaction annotations: the adapter or the platform
+integration reports facts, the core decides.
 
-Repeating a failure which will never succeed costs an operator ten log lines and a blocked entry
-either way, so the classification errs towards repeatable and each adapter's README lists what it
-calls permanent and why.
+Repeating a failure which will never succeed ends in a blocked entry either way, and every attempt
+on the way there writes a log line nobody learns anything from, so the classification errs towards
+repeatable and each adapter's README lists what it calls permanent and why.
 
 ### 13. A delivery whose version the BPMS did not report is served only by an unrestricted method
 
