@@ -1061,21 +1061,65 @@ itself fails for a simpler reason: nothing in the adapter SPI carries a message 
 name, an error code, an escalation code or a decision id, so the core cannot even form the set of
 identifiers to ask about.
 
-Only a BPMN process id and a DMN decision id can be served, and only by a BPMS which keeps a
-repository to search. Camunda 7 answers both from its repository service and Camunda 8 from its
-definition searches; the Process-Engine-API answers nothing, because its API carries no read method
-at all. The other kinds cannot be asked anywhere, and the reason is not cost. A message name, a
-signal name, a BPMN error code and an escalation code live only inside a BPMN model, and an engine
-which parses that model into structures of its own keeps no index of those names. Camunda 7 can be
-asked about the message and signal names of START events, and that half-answer is left out on the
-rule of decision 19: a check which sometimes runs is worse than none, because its silence stops
-meaning anything. A task definition becomes visible only while a job or an external task for it
-exists, and on Camunda 7 it is not scoped in the first place. `ScopedIdentifierKind` carries all
-four kinds anyway, so a BPMS which does keep a registry of names can be served without this SPI
-changing.
+A QUERY serves a BPMN process id and a DMN decision id, and only on a BPMS which keeps a repository
+to search. Camunda 7 answers both from its repository service and Camunda 8 from its definition
+searches; the Process-Engine-API answers nothing, because its API carries no read method at all.
+
+No index answers for a message name, a signal name, a BPMN error code or an escalation code, and
+that is not the same as nobody being able to answer. Those names live in a BPMN model, and a BPMS
+keeps the models and hands them back: `RepositoryService#getBpmnModelInstance` on Camunda 7,
+`newProcessDefinitionGetXmlRequest` on Camunda 8, and both adapters read models that way already. So
+the names CAN be determined, by reading a model rather than by asking an index, and what rules the
+complete answer out is the cost: one model read per definition version a BPMS holds is a number which
+grows for as long as the application is in production, which is what decision 19 forbids a start to
+do. Where the models are being read anyway the question is free, and that is where it is asked, see
+below. Camunda 7 can also be asked about the message and signal names of START events, and that
+half-answer is left out on the other rule of decision 19: a check which sometimes runs is worse than
+none, because its silence stops meaning anything. A task definition is the one kind no model read
+helps with, because it only becomes visible in the BPMS while a job or an external task for it
+exists, and on Camunda 7 it is not scoped at all. `ScopedIdentifierKind` names the kinds one by one,
+so a warning says "message name" where a developer would say it.
 
 A finding is a warning and never ends a boot, which is decision 38 applied: whoever holds the name
 may be an application running correctly, and ending this boot would not help it.
+
+Two more checks of the same subject cost nothing and were missing, and both are about the workflow
+modules of THIS application rather than about somebody else's deployment. An adapter rewrites every
+message name, signal name, error code and escalation code of the models it deploys through
+`scopedIdentifier`, so it holds all of them while it deploys and the core learned none of them:
+`reportIdentifiersTheModelsDeclare` is where they arrive now, and two workflow modules whose names
+end up as one scoped form are named with both sides. Under `use-prefix` the forms differ and there is
+nothing to report; the modes which let two modules share a name are `none`, and `by-adapter` where one
+`tenant-id` for the whole adapter puts every module into one scope. Several processes of ONE module
+sharing a name is the scope working as intended and is never reported.
+
+Under `by-adapter` the line is a question rather than a verdict, and says so: what keeps the modules
+apart there is the BPMS' own isolation, which is the adapter's knowledge and not the core's, so
+VanillaBP cannot see whether one scope covers both modules or each has its own. Saying it plainly is
+the same rule the finding about a foreign holder follows - a reader who cannot tell a certainty from a
+guess ends up ignoring both.
+
+That one warns instead of refusing, although decision 38's reasoning about a foreign deployment which
+runs correctly does not apply to two modules of one application. Two reasons of its own do. Nothing is
+overwritten: two BPMN processes under one id leave the BPMS holding one definition, while two modules
+sharing a message name keep both models and only make the runtime meaning of the name ambiguous,
+which an application may have arranged on purpose. And an application which ran like this yesterday
+must not be stopped by an upgrade.
+
+The second one reaches the names a workflow module deployed years ago.
+`ProcessVersionCatalog#identifiersOfVersion` answers which of those names ONE held version declares,
+read from the model the BPMS still hands back, and `reportIdentifiersOfHeldVersion` holds it against
+what the current deployment of the other modules declares. It is asked in the loop
+`DeployedProcessVersionsCheck` already runs over the held versions older than this boot's and not
+faded out, which already reads each of those models and already knows how many workflows run on
+them, so the question adds no fetch on an engine which caches parsed definitions and no query at all.
+An adapter whose model read goes over the wire is expected to hold the model for the length of that
+version's turn; the core caches no model. A held version of the module which still deploys the name is
+continuity and stays silent, and the finding is a held version of one module carrying the name another
+module deploys today. That one can only warn: nobody can change a held model any more, and the
+workflows on it are running correctly, which is why the message says how many there are. Its limit is
+which models get read at all - a workflow module the application dropped entirely has no catalog, so
+nothing is asked about it, and its names stay invisible.
 
 What is hard here is not the query, it is the discriminator. An identifier equal to one we deploy is
 matched by our own previous version first, and no engine records which application deployed a
@@ -1085,6 +1129,9 @@ applications configured with the same adapter id and the same workflow module id
 stamp, so even that stays a hint. Camunda 8 has no owner attribute at all and goes by the resource
 name, which is openly a heuristic. `certainlyForeign` carries the difference into the message,
 because a reader who cannot see whether a line names another application or their own earlier
-deployment learns to ignore the whole message. `IdentifiersTheBpmsAlreadyHoldsTest` holds the
-wording, and `StartupQuestionCostTest` that a boot says it once per workflow module and adapter id
-however much the BPMS has collected.
+deployment learns to ignore the whole message. `IdentifiersTheBpmsAlreadyHoldsTest` holds the wording
+of that one, `CollidingIdentifiersOfWorkflowModulesTest` the two checks about this application's own
+modules, `OldProcessVersionsTest` that the held versions are asked in the loop which reads their
+models, and `StartupQuestionCostTest` that a boot says each of the three once per workflow module
+respectively per held version, however much the BPMS has collected and however many workflows run on
+it.

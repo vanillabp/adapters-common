@@ -700,18 +700,43 @@ adapter id listing every finding. It never throws and never logs an ERROR, becau
 deployment on the other side may belong to an application which runs correctly. An adapter
 which cannot ask its BPMS calls nothing at all.
 
-Only a BPMN process id and a DMN decision id can be answered today, and only where the
-BPMS keeps a repository to search (Camunda 7, Camunda 8). The other kinds live only inside
-a BPMN model, so no engine has an index of them, which is why the enum carries them without
-anybody serving them yet. The background is decision 40 in the repository's `DECISIONS.md`.
+A query answers for a BPMN process id and a DMN decision id, and only where the BPMS keeps
+a repository to search (Camunda 7, Camunda 8). The other kinds are in no index, which is not
+the same as nobody being able to answer: those names live in a BPMN model, and both Camunda
+adapters already read models a BPMS hands back. What rules the complete answer out is the
+cost of one model read per version a BPMS holds, which grows with the years. So that question
+is asked only where a model is being read anyway, which is the third check below.
+
+Two more checks are about the workflow modules of THIS application.
+`reportIdentifiersTheModelsDeclare(adapterId, workflowModuleId, declared)` takes what the
+adapter read out of the models it deploys - it rewrites every message name, signal name,
+error code and escalation code through `scopedIdentifier` anyway, so it holds them for free -
+and the core warns where two workflow modules end up under one scoped form. Under
+`use-prefix` the forms differ and nothing is reported; `none` and a `by-adapter` adapter with
+one `tenant-id` for every module are the cases it catches. Under `by-adapter` the message says
+that VanillaBP cannot see whether the BPMS separates the two, because the isolation mechanism
+is the adapter's knowledge. Several processes of ONE module
+sharing a name is the scope working and stays silent. It warns rather than refusing, unlike
+the process-id check: both models stay as they are, and two modules sharing a name may be a
+design.
+
+`ProcessVersionCatalog#identifiersOfVersion` reaches the name a workflow module deployed years
+ago, read from a model the BPMS still holds, and `reportIdentifiersOfHeldVersion` holds it
+against what the other modules deploy today. `DeployedProcessVersionsCheck` asks it in the
+loop which already reads those models and already knows the workflow count per version, so it
+costs no query and no extra fetch where the engine caches parsed definitions. A held version
+of the module which still deploys the name is continuity and says nothing. The background of
+all three is decision 40 in the repository's `DECISIONS.md`.
 
 `NameClashAvoidanceServiceTest` goes through all of it: the resolution and the composition
 (`mostSpecificLevelWins`, `prefixComposesIdentifiers`, `readingBackStripsKnownPrefixOnly`),
 the adapter default (`defaultsToByAdapter`) and both guardrails
 (`byAdapterIsRejectedWithoutNativeIsolation`, `collidingProcessIdsAreReported`).
-`IdentifiersTheBpmsAlreadyHoldsTest` reads the warning about what the BPMS already held,
-per kind and per mode, and `StartupQuestionCostTest` keeps it at one message per workflow
-module however much the BPMS has collected.
+`IdentifiersTheBpmsAlreadyHoldsTest` reads the warning about what the BPMS already held, per
+kind and per mode, `CollidingIdentifiersOfWorkflowModulesTest` the two about this
+application's own modules, `OldProcessVersionsTest` that a held version is asked in the loop
+reading its model, and `StartupQuestionCostTest` keeps each of them at one message per
+workflow module respectively per held version.
 
 ### Workflow-task processing
 
