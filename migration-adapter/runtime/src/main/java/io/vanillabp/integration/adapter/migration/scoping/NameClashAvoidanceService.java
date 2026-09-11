@@ -93,7 +93,19 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
    * what a message needs is one other side to name, and a third module colliding is then
    * reported against the same one.
    */
-  private final Map<String, String> moduleDeclaringScopedIdentifier = new ConcurrentHashMap<>();
+  private final Map<String, Declaration> moduleDeclaringScopedIdentifier = new ConcurrentHashMap<>();
+
+  /**
+   * Where a scoped identifier was read: the workflow module it belongs to, and the BPMN
+   * process for a kind which is scoped per process.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process, or <code>null</code> for a module-wide name
+   */
+  private record Declaration(
+                             String workflowModuleId,
+                             String bpmnProcessId) {
+  }
 
   /**
    * Without the adapters' deployment services every adapter's default is
@@ -786,12 +798,14 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
       final var scopedForm = scopedFormOf(
           identifier.kind(),
           workflowModuleId,
-          null,
+          identifier.bpmnProcessId(),
           identifier.plainIdentifier(),
           adapterId);
-      final var moduleDeclaringItAlready = moduleDeclaringScopedIdentifier
-          .putIfAbsent(declarationKey(adapterId, identifier.kind(), scopedForm), workflowModuleId);
-      if ((moduleDeclaringItAlready == null) || moduleDeclaringItAlready.equals(workflowModuleId)) {
+      final var declaredAlready = moduleDeclaringScopedIdentifier
+          .putIfAbsent(
+              declarationKey(adapterId, identifier.kind(), scopedForm),
+              new Declaration(workflowModuleId, identifier.bpmnProcessId()));
+      if ((declaredAlready == null) || declaredAlready.workflowModuleId().equals(workflowModuleId)) {
         // the first module declaring it, or this module declaring it in a second process -
         // the scope of such a name IS the workflow module, so sharing it inside one is
         // ordinary VanillaBP
@@ -803,13 +817,15 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
       collisions
           .add(
               """
-                  %s '%s' of workflow module '%s' and of workflow module '%s' both reach the BPMS as \
-                  '%s' (mode '%s', %s)"""
+                  %s '%s' of workflow module '%s'%s and of workflow module '%s'%s both reach the BPMS \
+                  as '%s' (mode '%s', %s)"""
                   .formatted(
                       kindOf(identifier.kind()),
                       identifier.plainIdentifier(),
-                      moduleDeclaringItAlready,
+                      declaredAlready.workflowModuleId(),
+                      processClauseOf(identifier.kind(), declaredAlready.bpmnProcessId()),
                       workflowModuleId,
+                      processClauseOf(identifier.kind(), identifier.bpmnProcessId()),
                       scopedForm,
                       nameOf(mode),
                       whereTheModeComesFrom(workflowModuleId, null, adapterId)));
@@ -857,31 +873,35 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
       final var scopedForm = scopedFormOf(
           identifier.kind(),
           workflowModuleId,
-          bpmnProcessId,
+          identifier.bpmnProcessId() != null
+              ? identifier.bpmnProcessId()
+              : bpmnProcessId,
           identifier.plainIdentifier(),
           adapterId);
-      final var moduleDeployingItNow = moduleDeclaringScopedIdentifier
+      final var deployedNow = moduleDeclaringScopedIdentifier
           .get(declarationKey(adapterId, identifier.kind(), scopedForm));
-      if ((moduleDeployingItNow == null) || moduleDeployingItNow.equals(workflowModuleId)) {
+      if ((deployedNow == null) || deployedNow.workflowModuleId().equals(workflowModuleId)) {
         // nothing deploys that name today, or the module which does is the one the held
         // version belongs to, which is the same model carried forward rather than a clash
         continue;
       }
-      final var mode = modeFor(moduleDeployingItNow, null, adapterId);
+      final var mode = modeFor(deployedNow.workflowModuleId(), null, adapterId);
       modes.add(mode);
-      fixes.add(howToFree(mode, adapterId, moduleDeployingItNow));
+      fixes.add(howToFree(mode, adapterId, deployedNow.workflowModuleId()));
       shared
           .add(
               """
-                  %s '%s', which the BPMS sees as '%s' (mode '%s', %s), is declared by workflow module \
-                  '%s' of this deployment as well"""
+                  %s '%s'%s, which the BPMS sees as '%s' (mode '%s', %s), is declared by workflow \
+                  module '%s'%s of this deployment as well"""
                   .formatted(
                       kindOf(identifier.kind()),
                       identifier.plainIdentifier(),
+                      processClauseOf(identifier.kind(), identifier.bpmnProcessId()),
                       scopedForm,
                       nameOf(mode),
-                      whereTheModeComesFrom(moduleDeployingItNow, null, adapterId),
-                      moduleDeployingItNow));
+                      whereTheModeComesFrom(deployedNow.workflowModuleId(), null, adapterId),
+                      deployedNow.workflowModuleId(),
+                      processClauseOf(identifier.kind(), deployedNow.bpmnProcessId())));
     }
     if (shared.isEmpty()) {
       return;
@@ -945,6 +965,20 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
             VanillaBP cannot see whether it does: one scope configured for the whole adapter - a \
             tenant id, on the Camunda adapters - puts both workflow modules into it, while a scope \
             per workflow module keeps them apart and makes this harmless."""
+        : "";
+
+  }
+
+  /**
+   * Which BPMN process a finding names, where the kind is scoped by one: a task definition
+   * belongs to its process, and a developer looking for it needs to know which.
+   */
+  private static String processClauseOf(
+      final ScopedIdentifierKind kind,
+      final String bpmnProcessId) {
+
+    return (kind == ScopedIdentifierKind.TASK_DEFINITION) && (bpmnProcessId != null)
+        ? " (BPMN process '%s')".formatted(bpmnProcessId)
         : "";
 
   }
