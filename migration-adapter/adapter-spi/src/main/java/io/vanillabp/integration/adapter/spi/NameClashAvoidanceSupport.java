@@ -428,33 +428,46 @@ public interface NameClashAvoidanceSupport {
   }
 
   /**
-   * The kinds of identifier a workflow module scopes, as far as a BPMS can be asked
-   * about them.
+   * The kinds of identifier a workflow module scopes, and which of them a BPMS can be
+   * asked about.
    * <p>
-   * Two of them can be answered today, and only by a BPMS with a repository to search:
-   * Camunda 7 and Camunda 8 both answer for a BPMN process id and for a DMN decision id,
-   * one query each. The Process-Engine-API answers for nothing, because its API has no
-   * read method at all.
+   * Two of them are answered by a query: Camunda 7 and Camunda 8 both answer for a BPMN
+   * process id and for a DMN decision id, one search each against their repository. The
+   * Process-Engine-API answers for nothing, because its API has no read method at all.
    * <p>
-   * The other two are here although no BPMS serves them, so that an adapter for a BPMS
-   * which does keep a registry of message names fills
-   * {@link #MODULE_IDENTIFIER} without this SPI changing. Why nobody serves them is not
-   * cost: a message name, a signal name, a BPMN error code and an escalation code live
-   * only inside a BPMN model, and an engine which parses a model into its own structures
-   * keeps no index of those names. A task definition is the fifth of that group and
-   * misses for a second reason, namely that it only becomes visible while a job or an
-   * external task for it exists, and on Camunda 7 it is not scoped in the first place.
+   * The other kinds are not kept in any index, and that is not the same as not being
+   * knowable. A message name, a signal name, a BPMN error code and an escalation code live
+   * inside a BPMN model, and a BPMS keeps the models and hands them back: Camunda 7 through
+   * <code>RepositoryService#getBpmnModelInstance</code>, Camunda 8 through
+   * <code>newProcessDefinitionGetXmlRequest</code>, and both adapters read models that way
+   * already. So those names CAN be determined, by reading a model rather than by asking an
+   * index. What rules the complete answer out is the cost of reading one model per
+   * definition version the BPMS holds, which grows for as long as the application is in
+   * production, and that is what decision 19 in the repository's DECISIONS.md forbids a
+   * start to do. Where the models are read anyway,
+   * {@link io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog#identifiersOfVersion}
+   * answers the same question for the versions of this application's own processes.
+   * <p>
+   * A task definition is the one kind which no model read helps with either: it only
+   * becomes visible in the BPMS while a job or an external task for it exists, and on
+   * Camunda 7 it is not scoped in the first place.
    */
   enum ScopedIdentifierKind {
 
     /** A BPMN process id, scoped by the workflow module. */
     BPMN_PROCESS_ID,
 
-    /**
-     * An identifier scoped by the workflow module alone: a message name, a signal name,
-     * a BPMN error code or an escalation code.
-     */
-    MODULE_IDENTIFIER,
+    /** A message name, scoped by the workflow module. */
+    MESSAGE_NAME,
+
+    /** A signal name, scoped by the workflow module. */
+    SIGNAL_NAME,
+
+    /** A BPMN error code, scoped by the workflow module. */
+    ERROR_CODE,
+
+    /** An escalation code, scoped by the workflow module. */
+    ESCALATION_CODE,
 
     /** A task definition, scoped by the workflow module and by its BPMN process. */
     TASK_DEFINITION,
@@ -462,6 +475,97 @@ public interface NameClashAvoidanceSupport {
     /** A DMN decision id, scoped by the workflow module. */
     DMN_DECISION_ID
 
+  }
+
+  /**
+   * Warns where two workflow modules of THIS application declare an identifier which ends
+   * up as the same scoped form, so the BPMS cannot tell the two apart. Called by the
+   * adapter once per workflow module while it deploys, with what it read out of the models
+   * of that module: the adapter rewrites every message name, signal name, error code and
+   * escalation code through {@link #scopedIdentifier} anyway, so it holds all of them and
+   * the question costs nothing extra. BPMN process ids have their own check,
+   * {@link #validateNoCollidingProcessIds}.
+   * <p>
+   * Under {@link NameClashAvoidance#USE_PREFIX} the two scoped forms differ by the module
+   * id, so there is nothing to report. The modes which let two modules share a name are
+   * {@link NameClashAvoidance#NONE}, where nothing is scoped, and
+   * {@link NameClashAvoidance#BY_ADAPTER} where one <code>tenant-id</code> is configured
+   * for the whole adapter, so every workflow module of the application lands in the same
+   * scope of the BPMS.
+   * <p>
+   * This warns rather than ending the boot, although both sides belong to this application
+   * and the reasoning of decision 38 about a foreign deployment which runs correctly does
+   * not apply here. Two reasons of its own do. Nothing is overwritten: unlike two BPMN
+   * processes ending up under one id, where the BPMS keeps one definition and loses the
+   * other, both modules keep their own models and only the runtime meaning of the name
+   * becomes ambiguous, which an application may have arranged on purpose - one module
+   * broadcasting a signal another one catches is a design, not a defect. And an application
+   * which ran like this yesterday must not be stopped by an upgrade. What this must not do
+   * is stay silent, because nothing else tells a developer that a message meant for one
+   * module can reach a workflow of the other.
+   * <p>
+   * Several BPMN processes of ONE workflow module sharing a name is ordinary VanillaBP and
+   * is never reported: the scope is the module.
+   *
+   * @param adapterId The adapter ID
+   * @param workflowModuleId The workflow module whose models were read
+   * @param declared The identifiers those models declare, plain and without duplicates
+   */
+  void reportIdentifiersTheModelsDeclare(
+      String adapterId,
+      String workflowModuleId,
+      Collection<ModelIdentifier> declared);
+
+  /**
+   * Warns where ONE version a BPMS still holds declares an identifier which the current
+   * deployment of ANOTHER workflow module uses, which is the name clash a workflow module
+   * deployed years ago leaves behind. Called by the CORE while it checks the versions a
+   * BPMS still holds, so an adapter does not call this: what an adapter answers is
+   * {@link io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog#identifiersOfVersion},
+   * read from the model the BPMS hands back.
+   * <p>
+   * Most of what arrives here is no finding. A held version of the same workflow module
+   * declaring a name its current model declares as well is continuity. Several processes of
+   * one module sharing a name is ordinary. The finding is a held version of one workflow
+   * module carrying a name the current deployment of a different one scopes to the same
+   * form.
+   * <p>
+   * Always a warning, never a refusal, and for a reason the deployment-time checks do not
+   * have: nobody can change the held model any more, and workflows may still run on it and
+   * run correctly. The count of those workflows is what the message says out loud, because
+   * it decides how urgent the line is.
+   * <p>
+   * The limit of this check is which models get read at all. The core asks a catalog of a
+   * workflow module the application still deploys; a module the application dropped
+   * entirely has no catalog, nothing is asked about it, and its names stay invisible.
+   *
+   * @param adapterId The adapter ID
+   * @param workflowModuleId The workflow module of the held version
+   * @param bpmnProcessId The plain BPMN process ID of the held version
+   * @param version The version identifier the BPMS reported
+   * @param activeWorkflows How many workflows still run on that version, or
+   *          <code>null</code> where the BPMS cannot say
+   * @param declared What that version's model declares, or <code>null</code> where the
+   *          BPMS cannot read it
+   */
+  void reportIdentifiersOfHeldVersion(
+      String adapterId,
+      String workflowModuleId,
+      String bpmnProcessId,
+      String version,
+      Long activeWorkflows,
+      Collection<ModelIdentifier> declared);
+
+  /**
+   * One identifier a BPMN model declares, as the application knows it.
+   *
+   * @param kind Which of the scoped forms this identifier is
+   * @param plainIdentifier The identifier without any prefix - the core composes the scoped
+   *          form
+   */
+  record ModelIdentifier(
+                         ScopedIdentifierKind kind,
+                         String plainIdentifier) {
   }
 
 }
