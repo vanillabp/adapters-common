@@ -264,6 +264,33 @@ and quietly ignoring the setting is the one outcome nobody asked for. On your si
 one habit: scope on the way out, at every boundary your BPMS sees, and unscope on the way back,
 the identifiers of an inbound delivery included.
 
+One more call on the support belongs to the same subject, and this one you make after your deploy
+command returned. `validateNoCollidingProcessIds` compares what this boot deploys against itself,
+which never sees the identifier another application put into your BPMS years ago. If your BPMS can
+be asked about the identifiers it holds, ask it for the ones this workflow module is about to
+deploy and hand the hits to
+`reportIdentifiersTheBpmsAlreadyHolds(adapterId, workflowModuleId, found)`. A class of its own is
+the right size for it, holding the query and whatever you can find out about a hit, plus the one
+call from `deployResources`. If your BPMS cannot be asked, call nothing. Silence means "not asked" everywhere
+in this SPI, and there is no value for "cannot tell", because the core forms no verdict of its own
+here.
+
+Each finding is an `IdentifierHeldElsewhere`, and every part of it is yours to fill. The `kind` says
+which scoped form it is, and a `bpmnProcessId` comes with a task definition and with nothing else.
+The identifier is the PLAIN one, without your prefix and without your tenant: the core composes the
+form your BPMS sees, so the warning can name both forms plus the property which produced them.
+`heldBy` is a sentence you write, because only you know what your BPMS can say about a holder, a
+deployment name and a source on one engine, a resource name and a definition key on the next. And
+`certainlyForeign` says whether you can PROVE the holder is not an earlier deployment of this
+application. Usually you cannot, because an identifier equal to ours is matched by our own previous
+version first and no engine records which application deployed a definition, so answer `false` and
+the message says so rather than presenting your guess as a fact.
+
+Nothing about this may fail a deployment. Wrap the query so that a failure is logged at debug and
+nothing else, the way the checks around it already do, and ask once per workflow module rather than
+once per identifier where your filter takes a list. A finding is a warning on the core's side too,
+because the deployment holding the name may belong to an application which runs correctly.
+
 Where you hold the support in a place it may be absent, a unit test or a helper built without a
 platform around it, do not write `scoping == null ? plain : scoping.scoped…` yourself. The same six
 methods exist as STATIC ones taking the support as their first argument

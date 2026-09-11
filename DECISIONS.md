@@ -1037,3 +1037,54 @@ properties. What stays platform-specific is where the properties come from, whic
 that differs. `MigrationAdapterPropertiesTest.AdapterIdsOfType` holds the rules,
 `AdapterBeanRegistrarSupportTest` the Spring binding and `QuarkusAdapterIdsOfTypeTest` the Quarkus
 one.
+
+### 40. A name clash is asked about where the BPMS already holds the name
+
+`validateNoCollidingProcessIds` compares the scoped identifiers of one deployment against each
+other, so it never sees the identifier another application deployed into the same BPMS years ago.
+That deployment succeeds and the BPMS then decides on its own which side a start or a message
+reaches. So the clash check asks as well: the adapter queries its BPMS about the identifiers this
+application is about to deploy, and reports what is held already through
+`reportIdentifiersTheBpmsAlreadyHolds`.
+
+The adapter asks and the core words the warning. Only the adapter can query its own BPMS, and only
+the core knows the mode, the property which set it and the scoped form a plain identifier ends up
+as, which is decision 9. The adapter therefore hands over PLAIN identifiers plus a sentence naming
+the holder, and the core writes our side, their side and the change which frees the name.
+
+The question does not belong on `ProcessVersionCatalog`. That interface is keyed by a workflow
+module and a BPMN process, while a message name and a decision id are scoped by the module alone.
+Its answer carries a version and no holder. It is obtained for the ids the application DECLARES,
+and this question is about an id somebody else holds. And its contract promises answers cheap
+enough for a task dispatch, while this one is put while deploying. A question the core drives
+itself fails for a simpler reason: nothing in the adapter SPI carries a message name, a signal
+name, an error code, an escalation code or a decision id, so the core cannot even form the set of
+identifiers to ask about.
+
+Only a BPMN process id and a DMN decision id can be served, and only by a BPMS which keeps a
+repository to search. Camunda 7 answers both from its repository service and Camunda 8 from its
+definition searches; the Process-Engine-API answers nothing, because its API carries no read method
+at all. The other kinds cannot be asked anywhere, and the reason is not cost. A message name, a
+signal name, a BPMN error code and an escalation code live only inside a BPMN model, and an engine
+which parses that model into structures of its own keeps no index of those names. Camunda 7 can be
+asked about the message and signal names of START events, and that half-answer is left out on the
+rule of decision 19: a check which sometimes runs is worse than none, because its silence stops
+meaning anything. A task definition becomes visible only while a job or an external task for it
+exists, and on Camunda 7 it is not scoped in the first place. `ScopedIdentifierKind` carries all
+four kinds anyway, so a BPMS which does keep a registry of names can be served without this SPI
+changing.
+
+A finding is a warning and never ends a boot, which is decision 38 applied: whoever holds the name
+may be an application running correctly, and ending this boot would not help it.
+
+What is hard here is not the query, it is the discriminator. An identifier equal to one we deploy is
+matched by our own previous version first, and no engine records which application deployed a
+definition. Camunda 7 comes closest, because its adapter stamps every deployment with a name and a
+source, so a definition whose deployment carries neither was not made by this adapter id; two
+applications configured with the same adapter id and the same workflow module id write the same
+stamp, so even that stays a hint. Camunda 8 has no owner attribute at all and goes by the resource
+name, which is openly a heuristic. `certainlyForeign` carries the difference into the message,
+because a reader who cannot see whether a line names another application or their own earlier
+deployment learns to ignore the whole message. `IdentifiersTheBpmsAlreadyHoldsTest` holds the
+wording, and `StartupQuestionCostTest` that a boot says it once per workflow module and adapter id
+however much the BPMS has collected.

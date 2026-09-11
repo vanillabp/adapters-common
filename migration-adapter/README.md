@@ -687,10 +687,31 @@ invokes that only for more than one id of a type), and
 deployed processes are known. Changing the mode is a BPMS **migration**, not a
 property change — hence a differing mode makes two adapter ids of one type distinct.
 
+`validateNoCollidingProcessIds` compares one deployment against itself, which leaves
+out whatever somebody else put into the same BPMS earlier: another application's
+process id, a decision id of a module deployed years ago. Asking about those is the
+adapter's work, because only it can query its own BPMS, and
+`reportIdentifiersTheBpmsAlreadyHolds(adapterId, workflowModuleId, found)` is where the
+answer arrives. The adapter hands over PLAIN identifiers, a `ScopedIdentifierKind` per
+finding, a sentence of its own naming the holder and whether it can prove the holder is
+not an earlier deployment of this application; the core composes the scoped form, resolves
+the mode plus the property which set it, and writes one WARN per workflow module and
+adapter id listing every finding. It never throws and never logs an ERROR, because the
+deployment on the other side may belong to an application which runs correctly. An adapter
+which cannot ask its BPMS calls nothing at all.
+
+Only a BPMN process id and a DMN decision id can be answered today, and only where the
+BPMS keeps a repository to search (Camunda 7, Camunda 8). The other kinds live only inside
+a BPMN model, so no engine has an index of them, which is why the enum carries them without
+anybody serving them yet. The background is decision 40 in the repository's `DECISIONS.md`.
+
 `NameClashAvoidanceServiceTest` goes through all of it: the resolution and the composition
 (`mostSpecificLevelWins`, `prefixComposesIdentifiers`, `readingBackStripsKnownPrefixOnly`),
 the adapter default (`defaultsToByAdapter`) and both guardrails
 (`byAdapterIsRejectedWithoutNativeIsolation`, `collidingProcessIdsAreReported`).
+`IdentifiersTheBpmsAlreadyHoldsTest` reads the warning about what the BPMS already held,
+per kind and per mode, and `StartupQuestionCostTest` keeps it at one message per workflow
+module however much the BPMS has collected.
 
 ### Workflow-task processing
 
