@@ -448,9 +448,13 @@ public interface NameClashAvoidanceSupport {
    * {@link io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog#identifiersOfVersion}
    * answers the same question for the versions of this application's own processes.
    * <p>
-   * A task definition is the one kind which no model read helps with either: it only
-   * becomes visible in the BPMS while a job or an external task for it exists, and on
-   * Camunda 7 it is not scoped in the first place.
+   * A task definition is read off a held model like the rest, and what differs is whether
+   * it is scoped at all, which is a property of the BPMS. On Camunda 7 task definitions are
+   * process-local: the expression is evaluated inside the process by VanillaBP's EL
+   * resolver, nothing subscribes to them engine-wide, so that adapter deliberately leaves
+   * them as they are and the question does not exist there. A Camunda 8 job type is the
+   * opposite case and is prefixed, because a job type is what a worker subscribes to,
+   * cluster-wide.
    */
   enum ScopedIdentifierKind {
 
@@ -481,13 +485,24 @@ public interface NameClashAvoidanceSupport {
    * Warns where two workflow modules of THIS application declare an identifier which ends
    * up as the same scoped form, so the BPMS cannot tell the two apart. Called by the
    * adapter once per workflow module while it deploys, with what it read out of the models
-   * of that module: the adapter rewrites every message name, signal name, error code and
-   * escalation code through {@link #scopedIdentifier} anyway, so it holds all of them and
-   * the question costs nothing extra. BPMN process ids have their own check,
+   * of that module: the adapter rewrites every message name, signal name, error code,
+   * escalation code and task definition while it scopes that model anyway, so it holds all
+   * of them and the question costs nothing extra. BPMN process ids have their own check,
    * {@link #validateNoCollidingProcessIds}.
    * <p>
+   * A task definition is the most expensive of them to get wrong where the BPMS subscribes
+   * to it cluster-wide, which a Camunda 8 job type is: two workflow modules using the same
+   * task definition under {@link NameClashAvoidance#NONE} end up with one job type, and the
+   * worker of one module fetches the jobs of the other. An adapter whose BPMS keeps task
+   * definitions process-local reports none of them, and nothing here needs to know which of
+   * the two its BPMS is.
+   * <p>
    * Under {@link NameClashAvoidance#USE_PREFIX} the two scoped forms differ by the module
-   * id, so there is nothing to report. The modes which let two modules share a name are
+   * id, so there is nothing to report, and a task definition additionally differs by its
+   * process unless <code>prefix-task-definitions-per-process</code> is switched off. Two
+   * processes of one module sharing a task definition after that was switched off is the
+   * application's own choice and stays silent, exactly like a shared message name inside one
+   * module. The modes which let two modules share a name are
    * {@link NameClashAvoidance#NONE}, where nothing is scoped, and
    * {@link NameClashAvoidance#BY_ADAPTER} where one <code>tenant-id</code> is configured
    * for the whole adapter, so every workflow module of the application lands in the same
@@ -523,6 +538,10 @@ public interface NameClashAvoidanceSupport {
    * BPMS still holds, so an adapter does not call this: what an adapter answers is
    * {@link io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog#identifiersOfVersion},
    * read from the model the BPMS hands back.
+   * <p>
+   * A task definition of a held version is worth as much as the rest where the BPMS
+   * subscribes to it: a job type of a version workflows still run on is live, and the worker
+   * of another workflow module fetching those jobs is the same defect as at deployment time.
    * <p>
    * Most of what arrives here is no finding. A held version of the same workflow module
    * declaring a name its current model declares as well is continuity. Several processes of
@@ -562,10 +581,14 @@ public interface NameClashAvoidanceSupport {
    * @param kind Which of the scoped forms this identifier is
    * @param plainIdentifier The identifier without any prefix - the core composes the scoped
    *          form
+   * @param bpmnProcessId The BPMN process which declares it, for a task definition, since
+   *          those are scoped per process unless the application switched that off, and
+   *          <code>null</code> for every kind the workflow module scopes alone
    */
   record ModelIdentifier(
                          ScopedIdentifierKind kind,
-                         String plainIdentifier) {
+                         String plainIdentifier,
+                         String bpmnProcessId) {
   }
 
 }
