@@ -24,6 +24,7 @@ import io.vanillabp.integration.adapter.migration.delivery.JdbcConnectionAccess;
 import io.vanillabp.integration.adapter.migration.delivery.JdbcTaskDeliveryStore;
 import io.vanillabp.integration.adapter.migration.scoping.NameClashAvoidanceService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.IdentifierHeldElsewhere;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ScopedIdentifierKind;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.integration.spi.TaskDelivery;
@@ -234,12 +235,98 @@ public class StartupQuestionCostTest {
                     .formatted(number), null, "a definition deployed earlier", true))
         .toList();
 
+    return whileRecording(() -> new NameClashAvoidanceService(null).reportIdentifiersTheBpmsAlreadyHolds(
+        "c7",
+        MODULE,
+        found));
+
+  }
+
+  /**
+   * How many records the core writes while the models of two workflow modules declare the
+   * given number of identifiers, all of them colliding.
+   */
+  private static int messagesWhileTwoModulesDeclare(
+      final int identifiers) {
+
+    final var declared = java.util.stream.IntStream
+        .range(0, identifiers)
+        .mapToObj(number -> new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, "Message%d".formatted(number)))
+        .toList();
+    final var adapter = io.vanillabp.integration.adapter.migration.config.AdapterConfigProperties.ofType("camunda7");
+    adapter.setNameClashAvoidance(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE);
+    final var properties = io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties
+        .builder()
+        .adapters(java.util.Map.of("c7", adapter))
+        .prioritizedAdapters(List.of("c7"))
+        .build();
+    properties.validateAndLink();
+    final var scoping = new NameClashAvoidanceService(properties);
+
+    return whileRecording(
+        () -> {
+          scoping.reportIdentifiersTheModelsDeclare("c7", MODULE, declared);
+          scoping.reportIdentifiersTheModelsDeclare("c7", "another-module", declared);
+        });
+
+  }
+
+  @Test
+  @DisplayName("The identifiers two workflow modules share are one message per workflow module")
+  public void collidingIdentifiersCostOneMessagePerWorkflowModule() {
+
+    final var aSmallApplication = messagesWhileTwoModulesDeclare(1);
+    final var aBigOne = messagesWhileTwoModulesDeclare(200);
+
+    assertEquals(1, aSmallApplication, "the module which collides with one deployed before it says so once");
+    assertEquals(
+        aSmallApplication,
+        aBigOne,
+        "a workflow module is worth one message, whatever its models declare");
+
+  }
+
+  @Test
+  @DisplayName("A held version's identifiers are one message per version, not per workflow")
+  public void theIdentifiersOfHeldVersionsCostOneMessagePerVersion() {
+
+    final var adapter = io.vanillabp.integration.adapter.migration.config.AdapterConfigProperties.ofType("camunda7");
+    adapter.setNameClashAvoidance(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE);
+    final var properties = io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties
+        .builder()
+        .adapters(java.util.Map.of("c7", adapter))
+        .prioritizedAdapters(List.of("c7"))
+        .build();
+    properties.validateAndLink();
+    final var scoping = new NameClashAvoidanceService(properties);
+    final var declared = List.of(new ModelIdentifier(ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived"));
+    scoping.reportIdentifiersTheModelsDeclare("c7", MODULE, declared);
+
+    // the same finding on a version two workflows run on and on one which carries a
+    // hundred thousand: what the message costs is the version, and the count travels as a
+    // number the check around it already asked for
+    final var aQuietVersion = whileRecording(
+        () -> scoping.reportIdentifiersOfHeldVersion("c7", "another-module", PROCESS, "2", 2L, declared));
+    final var aBusyVersion = whileRecording(
+        () -> scoping.reportIdentifiersOfHeldVersion("c7", "another-module", PROCESS, "3", 100_000L, declared));
+
+    assertEquals(1, aQuietVersion);
+    assertEquals(aQuietVersion, aBusyVersion, "a version is worth one message, whatever runs on it");
+
+  }
+
+  /**
+   * How many records the given reporting wrote.
+   */
+  private static int whileRecording(
+      final Runnable reporting) {
+
     final var root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
     final var recorded = new ListAppender<ILoggingEvent>();
     recorded.start();
     root.addAppender(recorded);
     try {
-      new NameClashAvoidanceService(null).reportIdentifiersTheBpmsAlreadyHolds("c7", MODULE, found);
+      reporting.run();
     } finally {
       root.detachAppender(recorded);
     }

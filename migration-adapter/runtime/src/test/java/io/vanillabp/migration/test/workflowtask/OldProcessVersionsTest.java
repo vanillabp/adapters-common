@@ -153,6 +153,22 @@ public class OldProcessVersionsTest {
      */
     private final Map<String, Integer> instanceCountQueries = new java.util.HashMap<>();
 
+    private Map<String, Collection<io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier>> identifiersPerVersion = Map
+        .of();
+
+    @Override
+    public Collection<io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier> identifiersOfVersion(
+        final String workflowModuleId,
+        final String bpmnProcessId,
+        final String version) {
+
+      questions.merge("identifiersOfVersion(%s)".formatted(version), 1, Integer::sum);
+      return canReadModels
+          ? identifiersPerVersion.getOrDefault(version, List.of())
+          : null;
+
+    }
+
     private String whatIsMissed;
 
     @Override
@@ -576,6 +592,59 @@ public class OldProcessVersionsTest {
   }
 
   private String checkedProcess = PROCESS;
+
+  @Test
+  @DisplayName("The identifiers of a held version are read in the loop which reads its model")
+  public void theIdentifiersOfAHeldVersionAreReported() {
+
+    final var message = new io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier(
+        io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived");
+    catalog.identifiersPerVersion = Map.of("1", List.of(message), "2", List.of(message));
+    catalog.instancesPerVersion = Map.of("1", 4L);
+    final var reported = new java.util.LinkedHashMap<String, Long>();
+    deployedVersionsCheck = new DeployedProcessVersionsCheck(
+        processVersions, new OutfadedProcessVersions(properties), registry::tasksNotServedInVersion, registry::handlersNotServingAnyVersion, registry, null, (
+            adapterId,
+            workflowModuleId,
+            bpmnProcessId,
+            version,
+            activeWorkflows,
+            declared) -> reported.put(version, activeWorkflows));
+
+    check();
+
+    // the versions OLDER than the one this boot deployed, which is the same set the
+    // unserved-task report walks, and the instance count it already asked for
+    assertEquals(java.util.Set.of("1", "2"), reported.keySet(), () -> String.valueOf(reported));
+    assertEquals(4L, reported.get("1"));
+    assertEquals(0L, reported.get("2"));
+    // one question per version, never one per workflow
+    assertEquals(1, catalog.questions.get("identifiersOfVersion(1)"));
+    assertEquals(1, catalog.questions.get("identifiersOfVersion(2)"));
+
+  }
+
+  @Test
+  @DisplayName("A BPMS which cannot read a held model reports no identifiers of it")
+  public void aBpmsWhichCannotReadModelsReportsNoIdentifiers() {
+
+    catalog.canReadModels = false;
+    final var reported = new java.util.LinkedHashMap<String, Long>();
+    deployedVersionsCheck = new DeployedProcessVersionsCheck(
+        processVersions, new OutfadedProcessVersions(properties), registry::tasksNotServedInVersion, registry::handlersNotServingAnyVersion, registry, null, (
+            adapterId,
+            workflowModuleId,
+            bpmnProcessId,
+            version,
+            activeWorkflows,
+            declared) -> reported.put(version, activeWorkflows));
+
+    check();
+
+    assertEquals(Map.of(), reported, () -> "nothing is judged by an answer nobody has: "
+        + reported);
+
+  }
 
   private void runCheck() {
 

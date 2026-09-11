@@ -108,7 +108,9 @@ public class IdentifiersTheBpmsAlreadyHoldsTest {
         List.of(
             new IdentifierHeldElsewhere(ScopedIdentifierKind.BPMN_PROCESS_ID, PROCESS, null, "another deployment", true),
             new IdentifierHeldElsewhere(
-                ScopedIdentifierKind.MODULE_IDENTIFIER, "PaymentReceived", null, "another deployment", true),
+                ScopedIdentifierKind.MESSAGE_NAME, "PaymentReceived", null, "another deployment", true),
+            new IdentifierHeldElsewhere(
+                ScopedIdentifierKind.ERROR_CODE, "PAYMENT_FAILED", null, "another deployment", true),
             new IdentifierHeldElsewhere(
                 ScopedIdentifierKind.TASK_DEFINITION, "scoreApplicant", PROCESS, "another deployment", true),
             new IdentifierHeldElsewhere(ScopedIdentifierKind.DMN_DECISION_ID, "scoring", null, "another deployment", true)));
@@ -116,8 +118,12 @@ public class IdentifiersTheBpmsAlreadyHoldsTest {
     assertTrue(reported.contains(MODULE), reported);
     assertTrue(reported.contains("BPMN process id 'RiskAssessment'"), reported);
     assertTrue(reported.contains("'loan-approval__RiskAssessment'"), reported);
-    assertTrue(reported.contains("message, signal, error or escalation name 'PaymentReceived'"), reported);
+    // the kinds are named in the words a developer sees in a modeller, so a line says
+    // which of the five module-wide names it is about
+    assertTrue(reported.contains("message name 'PaymentReceived'"), reported);
     assertTrue(reported.contains("'loan-approval__PaymentReceived'"), reported);
+    assertTrue(reported.contains("BPMN error code 'PAYMENT_FAILED'"), reported);
+    assertTrue(reported.contains("'loan-approval__PAYMENT_FAILED'"), reported);
     // a task definition is the one kind scoped by its BPMN process as well, so the
     // warning names the process it belongs to
     assertTrue(reported.contains("task definition 'scoreApplicant' of BPMN process 'RiskAssessment'"), reported);
