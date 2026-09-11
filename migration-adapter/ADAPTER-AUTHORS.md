@@ -292,16 +292,22 @@ once per identifier where your filter takes a list. A finding is a warning on th
 because the deployment holding the name may belong to an application which runs correctly.
 
 What your BPMS can be asked that way is a BPMN process id and a DMN decision id, if it keeps a
-repository to search. A message name, a signal name, a BPMN error code and an escalation code are in
-no index, which does not mean nobody can answer: those names live in the model, and your BPMS hands
-its models back. What it costs is one model read per version it holds, and a start which does that
+repository to search. A message name, a signal name, a BPMN error code, an escalation code and a task
+definition are in no index, which does not mean nobody can answer: those names live in the model, and
+your BPMS hands its models back. Whether a task definition is scoped at all is your BPMS' business -
+process-local on Camunda 7, a cluster-wide job type on Camunda 8. What it costs is one model read per version it holds, and a start which does that
 grows slower every year the application runs, which decision 19 of this repository's DECISIONS.md
 forbids. So do not sweep the models for this. Answer the two questions below instead, where the
 reading is already paid for.
 
-The first one costs you nothing at all. While you prepare a model you rewrite every message name,
-signal name, error code and escalation code through `scoping.scopedIdentifier(...)`, so you hold all
-of them, and the core holds none. Hand them over per workflow module once you deployed it, with
+The first one costs you nothing at all. While you prepare a model you scope every message name,
+signal name, error code and escalation code through `scoping.scopedIdentifier(...)`, and every task
+definition through `scoping.scopedTaskDefinition(...)` if your BPMS scopes those, so you hold all of
+them and the core holds none. Name the BPMN process on a task definition and leave it `null` on the
+rest: a task definition is scoped per process unless the application switched that off. Where your
+BPMS keeps task definitions process-local, report none of them - the core needs no flag for it. And
+where it subscribes to them cluster-wide, this is the most expensive line of the whole check: two
+workflow modules with one job type mean the worker of one fetches the jobs of the other. Hand them over per workflow module once you deployed it, with
 `reportIdentifiersTheModelsDeclare(adapterId, workflowModuleId, declared)` and one `ModelIdentifier`
 per name, PLAIN and without your prefix. The core then warns where two workflow modules of the
 application end up under one scoped form, which is the clash prefixing cannot produce and `none` and

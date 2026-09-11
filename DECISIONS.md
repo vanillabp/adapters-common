@@ -1075,10 +1075,13 @@ grows for as long as the application is in production, which is what decision 19
 do. Where the models are being read anyway the question is free, and that is where it is asked, see
 below. Camunda 7 can also be asked about the message and signal names of START events, and that
 half-answer is left out on the other rule of decision 19: a check which sometimes runs is worse than
-none, because its silence stops meaning anything. A task definition is the one kind no model read
-helps with, because it only becomes visible in the BPMS while a job or an external task for it
-exists, and on Camunda 7 it is not scoped at all. `ScopedIdentifierKind` names the kinds one by one,
-so a warning says "message name" where a developer would say it.
+none, because its silence stops meaning anything. A task definition is read off a held model like the rest, and what
+differs is whether it is scoped at all. On Camunda 7 it is not: a task definition is process-local
+there, the expression is evaluated inside the process by VanillaBP's EL resolver, nothing subscribes
+to it engine-wide, so that adapter does not rewrite it and the question does not exist. A Camunda 8
+job type is the opposite and is prefixed, because a job type is what a worker subscribes to,
+cluster-wide. `ScopedIdentifierKind` names the kinds one by one, so a warning says "message name"
+where a developer would say it.
 
 A finding is a warning and never ends a boot, which is decision 38 applied: whoever holds the name
 may be an application running correctly, and ending this boot would not help it.
@@ -1088,7 +1091,14 @@ modules of THIS application rather than about somebody else's deployment. An ada
 message name, signal name, error code and escalation code of the models it deploys through
 `scopedIdentifier`, so it holds all of them while it deploys and the core learned none of them:
 `reportIdentifiersTheModelsDeclare` is where they arrive now, and two workflow modules whose names
-end up as one scoped form are named with both sides. Under `use-prefix` the forms differ and there is
+end up as one scoped form are named with both sides. Task definitions are part of that, and on a BPMS
+which subscribes to them cluster-wide they are the most expensive kind of the set: two modules using
+the same task definition under `none` end up with one job type, and the worker of one module fetches
+the jobs of the other. A held version's job type is live for as long as workflows run on that version,
+so the second check reaches it too. An adapter whose BPMS keeps task definitions process-local reports
+none of them and the core needs no case for it. What is not a finding is two processes of one module
+sharing a task definition: with `prefix-task-definitions-per-process` at its default their scoped forms
+differ anyway, and where an application switched that off the sharing is its own explicit choice. Under `use-prefix` the forms differ and there is
 nothing to report; the modes which let two modules share a name are `none`, and `by-adapter` where one
 `tenant-id` for the whole adapter puts every module into one scope. Several processes of ONE module
 sharing a name is the scope working as intended and is never reported.

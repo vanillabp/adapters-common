@@ -703,15 +703,22 @@ which cannot ask its BPMS calls nothing at all.
 A query answers for a BPMN process id and a DMN decision id, and only where the BPMS keeps
 a repository to search (Camunda 7, Camunda 8). The other kinds are in no index, which is not
 the same as nobody being able to answer: those names live in a BPMN model, and both Camunda
-adapters already read models a BPMS hands back. What rules the complete answer out is the
+adapters already read models a BPMS hands back. A task definition is read off a model as
+well; what differs is whether it is scoped at all, which is process-local on Camunda 7 and
+cluster-wide on Camunda 8. What rules the complete answer out is the
 cost of one model read per version a BPMS holds, which grows with the years. So that question
 is asked only where a model is being read anyway, which is the third check below.
 
 Two more checks are about the workflow modules of THIS application.
 `reportIdentifiersTheModelsDeclare(adapterId, workflowModuleId, declared)` takes what the
 adapter read out of the models it deploys - it rewrites every message name, signal name,
-error code and escalation code through `scopedIdentifier` anyway, so it holds them for free -
-and the core warns where two workflow modules end up under one scoped form. Under
+error code, escalation code and task definition while it scopes that model anyway, so it
+holds them for free - and the core warns where two workflow modules end up under one scoped
+form. A task definition is the worst case of the set where a BPMS subscribes to it
+cluster-wide: two modules using one job type under `none` make the worker of one fetch the
+jobs of the other. A `ModelIdentifier` therefore carries the BPMN process for a task
+definition, since those are scoped per process unless the application switched that off, and
+two processes of ONE module sharing one stays silent either way. Under
 `use-prefix` the forms differ and nothing is reported; `none` and a `by-adapter` adapter with
 one `tenant-id` for every module are the cases it catches. Under `by-adapter` the message says
 that VanillaBP cannot see whether the BPMS separates the two, because the isolation mechanism
