@@ -34,7 +34,7 @@
          changes the schema adds changesets labelled with ITS version plus one execution per
          database below, so a Flyway file always holds one release's statements only. -->
     <schema.version>2.0.0</schema.version>
-    <h2.version>2.4.240</h2.version>
+    <h2.version>2.5.250</h2.version>
     <postgresql.driver.version>42.7.13</postgresql.driver.version>
     <generated.sql.directory>${project.build.directory}/generated-resources</generated.sql.directory>
   </properties>
