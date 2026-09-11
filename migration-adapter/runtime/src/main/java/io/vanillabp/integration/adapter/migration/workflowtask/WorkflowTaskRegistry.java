@@ -196,6 +196,27 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
       final List<TransactionAnnotationSpec> transactionAnnotations,
       final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties) {
 
+    this(transactionRunner, aggregateSync, transactionAnnotations, properties, null);
+
+  }
+
+  /**
+   * @param transactionRunner The transaction every handler runs in
+   * @param aggregateSync The core's sync model
+   * @param transactionAnnotations The transaction annotations of the platform
+   * @param properties The VanillaBP configuration
+   * @param scoping The core's name-clash-avoidance support, which is where the identifiers
+   *          of a version a BPMS still holds are held against what this deployment
+   *          declares. Without it that one check stays silent; everything else works as it
+   *          does with it
+   */
+  public WorkflowTaskRegistry(
+      final TransactionRunner transactionRunner,
+      final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync,
+      final List<TransactionAnnotationSpec> transactionAnnotations,
+      final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
     this.transactionRunner = transactionRunner;
     this.extensionHandlers = new io.vanillabp.integration.adapter.migration.handler.ExtensionHandlerRegistry(
         transactionRunner);
@@ -204,7 +225,9 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
     this.properties = properties;
     this.outfadedVersions = new OutfadedProcessVersions(properties);
     this.deployedVersionsCheck = new DeployedProcessVersionsCheck(
-        processVersions, outfadedVersions, this::tasksNotServedInVersion, this::handlersNotServingAnyVersion, this, this::reportConcurrentTokenElementsOfHeldVersions);
+        processVersions, outfadedVersions, this::tasksNotServedInVersion, this::handlersNotServingAnyVersion, this, this::reportConcurrentTokenElementsOfHeldVersions, scoping == null
+            ? null
+            : scoping::reportIdentifiersOfHeldVersion);
     this.rollbackRuleRemedies = transactionAnnotations
         .stream()
         .filter(TransactionAnnotationSpec::honored)

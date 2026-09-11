@@ -104,8 +104,26 @@ public class DeployedProcessVersionsCheck {
   }
 
   /**
-   * What the check reads from an adapter's catalog - narrowed to its two questions so a
-   * test double does not have to be a whole catalog.
+   * The identifiers a version a BPMS still holds declares - handed to the place which knows
+   * what the current deployment scopes them to, so the name a workflow module deployed years
+   * ago can be held against the module which uses it today.
+   */
+  @FunctionalInterface
+  public interface IdentifiersOfHeldVersions {
+
+    void report(
+        String adapterId,
+        String workflowModuleId,
+        String bpmnProcessId,
+        String version,
+        Long activeWorkflows,
+        Collection<io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier> declared);
+
+  }
+
+  /**
+   * What the check reads from an adapter's catalog - narrowed to its questions so a test
+   * double does not have to be a whole catalog.
    */
   public interface ProcessVersionCatalogAccess {
 
@@ -140,6 +158,15 @@ public class DeployedProcessVersionsCheck {
 
     }
 
+    default Collection<io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier> identifiersOfVersion(
+        final String workflowModuleId,
+        final String bpmnProcessId,
+        final String version) {
+
+      return null;
+
+    }
+
   }
 
   private final ProcessVersions processVersions;
@@ -160,6 +187,12 @@ public class DeployedProcessVersionsCheck {
    * Where the elements of a held version which can produce a second token are judged.
    */
   private final ConcurrentTokenElementsOfHeldVersions concurrentTokenElements;
+
+  /**
+   * Where the identifiers of a held version are held against what the current deployment
+   * declares. Absent where no platform wired it, and the question is then not even asked.
+   */
+  private final IdentifiersOfHeldVersions identifiersOfHeldVersions;
 
   /**
    * The adapters already reported as unable to answer, so a BPMS which cannot read old
@@ -199,7 +232,7 @@ public class DeployedProcessVersionsCheck {
       final DeadHandlers deadHandlers,
       final DeclaredBpmnProcesses declaredProcesses) {
 
-    this(processVersions, outfadedVersions, unservedTasks, deadHandlers, declaredProcesses, null);
+    this(processVersions, outfadedVersions, unservedTasks, deadHandlers, declaredProcesses, null, null);
 
   }
 
@@ -211,12 +244,26 @@ public class DeployedProcessVersionsCheck {
       final DeclaredBpmnProcesses declaredProcesses,
       final ConcurrentTokenElementsOfHeldVersions concurrentTokenElements) {
 
+    this(processVersions, outfadedVersions, unservedTasks, deadHandlers, declaredProcesses, concurrentTokenElements, null);
+
+  }
+
+  public DeployedProcessVersionsCheck(
+      final ProcessVersions processVersions,
+      final OutfadedProcessVersions outfadedVersions,
+      final UnservedTasks unservedTasks,
+      final DeadHandlers deadHandlers,
+      final DeclaredBpmnProcesses declaredProcesses,
+      final ConcurrentTokenElementsOfHeldVersions concurrentTokenElements,
+      final IdentifiersOfHeldVersions identifiersOfHeldVersions) {
+
     this.processVersions = processVersions;
     this.outfadedVersions = outfadedVersions;
     this.unservedTasks = unservedTasks;
     this.deadHandlers = deadHandlers;
     this.declaredProcesses = declaredProcesses;
     this.concurrentTokenElements = concurrentTokenElements;
+    this.identifiersOfHeldVersions = identifiersOfHeldVersions;
 
   }
 
@@ -302,6 +349,8 @@ public class DeployedProcessVersionsCheck {
       }
       rememberConcurrentTokenElements(
           workflowModuleId, bpmnProcessId, version, instanceCounts, catalog, concurrentTokensPerVersion);
+      reportIdentifiersOfHeldVersion(
+          workflowModuleId, bpmnProcessId, adapterId, version, instanceCounts, catalog);
       final var tasks = catalog.tasksOfVersion(workflowModuleId, bpmnProcessId, version);
       if (tasks == null) {
         reportUnableToReadModels(workflowModuleId, bpmnProcessId, adapterId);
@@ -316,6 +365,49 @@ public class DeployedProcessVersionsCheck {
     if (concurrentTokenElements != null) {
       concurrentTokenElements.report(workflowModuleId, bpmnProcessId, concurrentTokensPerVersion);
     }
+
+  }
+
+  /**
+   * Reads the identifiers ONE held version declares and hands them to the place which knows
+   * what the current deployment scopes the same names to. A message name of a workflow
+   * module deployed years ago lives only in that model, so this is the only place it can be
+   * compared at all.
+   * <p>
+   * It runs in the loop which reads that version's model anyway, which is what keeps it
+   * cheap: one question more about a model already being fetched, per version the check
+   * already looks at.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The plain BPMN process ID
+   * @param adapterId The adapter ID
+   * @param version The version identifier the BPMS reported
+   * @param instanceCounts How many workflows run on a version, asked once per version
+   * @param catalog What that BPMS can tell about the process
+   */
+  private void reportIdentifiersOfHeldVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String adapterId,
+      final String version,
+      final InstanceCounts instanceCounts,
+      final ProcessVersionCatalogAccess catalog) {
+
+    if (identifiersOfHeldVersions == null) {
+      return;
+    }
+    final var declared = catalog.identifiersOfVersion(workflowModuleId, bpmnProcessId, version);
+    if (declared == null) {
+      return; // this BPMS cannot read the model, so nothing is judged by an answer nobody has
+    }
+    identifiersOfHeldVersions
+        .report(
+            adapterId,
+            workflowModuleId,
+            bpmnProcessId,
+            version,
+            instanceCounts.of(version),
+            declared);
 
   }
 
@@ -898,6 +990,16 @@ public class DeployedProcessVersionsCheck {
           final String version) {
 
         return catalog.concurrentTokenElementsOfVersion(workflowModuleId, bpmnProcessId, version);
+
+      }
+
+      @Override
+      public Collection<io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier> identifiersOfVersion(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String version) {
+
+        return catalog.identifiersOfVersion(workflowModuleId, bpmnProcessId, version);
 
       }
 
