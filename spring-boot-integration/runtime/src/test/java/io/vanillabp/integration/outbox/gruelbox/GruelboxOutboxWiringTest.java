@@ -167,7 +167,8 @@ public class GruelboxOutboxWiringTest {
               properties,
               context.getBeanProvider(
                   io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.class),
-              context.getBeanProvider(com.gruelbox.transactionoutbox.TransactionOutboxListener.class));
+              context.getBeanProvider(com.gruelbox.transactionoutbox.TransactionOutboxListener.class),
+              new GruelboxRedispatchAwareSubmitter(com.gruelbox.transactionoutbox.Submitter.withDefaultExecutor()));
     }
 
   }
