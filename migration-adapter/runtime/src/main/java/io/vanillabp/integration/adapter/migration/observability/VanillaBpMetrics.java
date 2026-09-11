@@ -111,6 +111,20 @@ public interface VanillaBpMetrics {
   String OUTBOX_DISCARDED = "vanillabp.outbox.discarded";
 
   /**
+   * Outbox entries a store gave up on. Every store counts one here the moment it writes
+   * the block, whether the adapter called the failure permanent or the configured
+   * attempts ran out, so this is the number operations alerts on: a blocked entry is an
+   * operation the application asked for which will not happen until somebody repairs the
+   * row.
+   * <p>
+   * It is the one meter which has to exist separately, because {@link #OUTBOX_PENDING}
+   * counts the entries still waiting and a blocked entry stops waiting. So the gauge an
+   * operator watches FALLS at the moment an operation was lost, and nothing else in this
+   * interface moves.
+   */
+  String OUTBOX_BLOCKED = "vanillabp.outbox.blocked";
+
+  /**
    * Outbox entries waiting to be dispatched, reported by the stores which can count
    * them ({@link io.vanillabp.integration.spi.PhaseTwoOutbox#pendingCalls()}).
    */
@@ -284,6 +298,26 @@ public interface VanillaBpMetrics {
    */
   default void outboxScheduleDiscarded(
       final String operation) {
+
+  }
+
+  /**
+   * A store blocked an outbox entry, so the operation it carries will not be carried out
+   * until somebody repairs the entry. Counted by the store which writes the block, once
+   * per entry.
+   *
+   * @param store The name of the outbox store which blocked the entry, used as the
+   *          <code>store</code> tag - the same value its
+   *          {@link #registerPendingOutboxEntries(String, Supplier)} uses
+   * @param operation The persisted name of the phase-two operation which was lost
+   * @param permanent Whether the adapter said that repeating cannot help
+   *          ({@link io.vanillabp.integration.spi.PhaseTwoPermanentFailure}), as opposed
+   *          to the configured attempts having run out
+   */
+  default void outboxEntryBlocked(
+      final String store,
+      final String operation,
+      final boolean permanent) {
 
   }
 
