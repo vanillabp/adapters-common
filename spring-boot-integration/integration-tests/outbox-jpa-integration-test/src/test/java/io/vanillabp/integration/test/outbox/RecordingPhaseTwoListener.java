@@ -16,12 +16,22 @@ public class RecordingPhaseTwoListener implements DummyPhaseTwoListener {
 
   private final AtomicInteger failuresRemaining = new AtomicInteger(0);
 
+  /**
+   * Whether the failures this listener raises are the kind the dummy adapter reports as
+   * permanent.
+   */
+  private volatile boolean failPermanently = false;
+
   @Override
   public void startedWorkflowPhaseTwo(
       final Object workflowAggregateId) {
 
     invocations.add(workflowAggregateId);
     if (failuresRemaining.getAndUpdate(remaining -> remaining > 0 ? remaining - 1 : 0) > 0) {
+      if (failPermanently) {
+        throw new io.vanillabp.bpmsdouble.DummyPermanentFailure(
+            "phase two failed permanently for testing purposes");
+      }
       throw new RuntimeException("phase two failed for testing purposes");
     }
 
@@ -215,6 +225,20 @@ public class RecordingPhaseTwoListener implements DummyPhaseTwoListener {
 
   }
 
+  /**
+   * Lets the next dispatches fail with a failure the adapter reports as PERMANENT - the
+   * store has to block such an entry right away.
+   *
+   * @param numberOfFailures How many dispatches fail
+   */
+  public void failNextDispatchesPermanently(
+      final int numberOfFailures) {
+
+    failPermanently = true;
+    failNextDispatches(numberOfFailures);
+
+  }
+
   public void failNextDispatches(
       final int numberOfFailures) {
 
@@ -238,6 +262,7 @@ public class RecordingPhaseTwoListener implements DummyPhaseTwoListener {
     correlatedMessages.clear();
     startedByMessage.clear();
     failuresRemaining.set(0);
+    failPermanently = false;
 
   }
 

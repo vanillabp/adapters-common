@@ -21,8 +21,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import com.gruelbox.transactionoutbox.DefaultPersistor;
 import com.gruelbox.transactionoutbox.Dialect;
+import com.gruelbox.transactionoutbox.Persistor;
 import com.gruelbox.transactionoutbox.Submitter;
 import com.gruelbox.transactionoutbox.TransactionOutbox;
+import com.gruelbox.transactionoutbox.TransactionOutboxListener;
 import com.gruelbox.transactionoutbox.spring.SpringInstantiator;
 import com.gruelbox.transactionoutbox.spring.SpringTransactionManager;
 
@@ -63,7 +65,11 @@ import jakarta.persistence.EntityManagerFactory;
  * request ID (<code>vanillabp.outbox.retention</code> maps to gruelbox's retention
  * threshold; expired entries are deleted by the background flush), and blocking after
  * <code>vanillabp.outbox.block-after-attempts</code> failed attempts is gruelbox's
- * native blocklisting. Two things this store cannot do and the own stores can: its
+ * native blocklisting. What gruelbox has no idea of is VanillaBP's classification of a
+ * failure, so a failure the adapter calls permanent is blocked by a listener of
+ * VanillaBP's ({@link GruelboxPhaseTwoFailureListener}), which also gives a blocked entry
+ * an ERROR naming the workflow instead of only the entry id. Two things this store cannot
+ * do and the own stores can: its
  * retry policy knows ONE fixed distance, so <code>max-attempt-frequency</code> and the
  * doubling it caps have no effect here, and a blocklisted entry holds its
  * <code>uniqueRequestId</code> until the row is removed, so the operation it failed at
@@ -125,6 +131,10 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
    * @param vanillaBpProperties The bound <code>vanillabp.*</code> tree carrying the
    *          <code>vanillabp.outbox</code> section (registered here as well so the
    *          outbox works in contexts without the full VanillaBP auto-configuration)
+   * @param metrics Provider of what a blocked entry is counted into; Micrometer is
+   *          optional, so the bean may legitimately be absent
+   * @param applicationListeners The outbox listeners the application brings, which keep
+   *          being called next to VanillaBP's own one
    * @return The transaction outbox
    */
   @Bean(DEFAULT_TRANSACTION_OUTBOX_BEAN_NAME)
@@ -133,7 +143,9 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
       final ApplicationContext applicationContext,
       final Map<String, PlatformTransactionManager> transactionManagers,
       final DataSource dataSource,
-      final VanillaBpConfigurationProperties vanillaBpProperties) {
+      final VanillaBpConfigurationProperties vanillaBpProperties,
+      final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics,
+      final ObjectProvider<TransactionOutboxListener> applicationListeners) {
 
     final var properties = vanillaBpProperties.getOutbox();
     // the gruelbox migration always targets the DEFAULT table (TXNO_OUTBOX) - a
@@ -151,12 +163,17 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
     if (customTable != null) {
       persistorBuilder.tableName(customTable);
     }
+    // the persistor and the transaction manager are held as locals because the listener
+    // needs both to write the blocked flag of an entry gruelbox would keep retrying
+    final var persistor = persistorBuilder.build();
+    final var transactionManager = new SpringTransactionManager(
+        selectJdbcTransactionManager(transactionManagers), dataSource);
     return TransactionOutbox
         .builder()
-        .transactionManager(new SpringTransactionManager(
-            selectJdbcTransactionManager(transactionManagers), dataSource))
+        .transactionManager(transactionManager)
         .instantiator(new SpringInstantiator(applicationContext))
-        .persistor(persistorBuilder.build())
+        .persistor(persistor)
+        .listener(outboxListener(persistor, transactionManager, metrics, applicationListeners))
         // carries "this entry was attempted before" to the dispatch bean - the
         // START re-dispatch mitigation's signal (see the submitter's javadoc)
         .submitter(new GruelboxRedispatchAwareSubmitter(Submitter.withDefaultExecutor()))
@@ -165,6 +182,34 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
         .retentionThreshold(properties.getRetention())
         .initializeImmediately(true)
         .build();
+
+  }
+
+  /**
+   * The listener the outbox reports its failures to: VanillaBP's own one, followed by
+   * whatever listeners the application defined. Gruelbox takes exactly one, so the
+   * application's are chained behind VanillaBP's rather than replacing it - an
+   * application which listens to its outbox keeps hearing everything it heard before.
+   *
+   * @param persistor The persistor of this outbox
+   * @param transactionManager The transaction manager of this outbox
+   * @param metrics Provider of what a blocked entry is counted into
+   * @param applicationListeners The listeners the application brings
+   * @return The listener to hand to the outbox
+   */
+  private static TransactionOutboxListener outboxListener(
+      final Persistor persistor,
+      final SpringTransactionManager transactionManager,
+      final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics,
+      final ObjectProvider<TransactionOutboxListener> applicationListeners) {
+
+    TransactionOutboxListener listener = new GruelboxPhaseTwoFailureListener(
+        persistor, transactionManager, () -> io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration
+            .vanillaBpMetricsOf(metrics));
+    for (final var applicationListener : applicationListeners) {
+      listener = listener.andThen(applicationListener);
+    }
+    return listener;
 
   }
 

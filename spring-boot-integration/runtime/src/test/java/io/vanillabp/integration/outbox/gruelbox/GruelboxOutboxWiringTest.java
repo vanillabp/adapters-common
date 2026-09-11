@@ -164,7 +164,10 @@ public class GruelboxOutboxWiringTest {
               context,
               Map.of("transactionManager", new DataSourceTransactionManager(dataSource)),
               dataSource,
-              properties);
+              properties,
+              context.getBeanProvider(
+                  io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.class),
+              context.getBeanProvider(com.gruelbox.transactionoutbox.TransactionOutboxListener.class));
     }
 
   }

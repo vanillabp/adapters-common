@@ -98,7 +98,10 @@ public class GruelboxDeduplicationWindowTest {
             context,
             Map.of("transactionManager", new DataSourceTransactionManager(dataSource)),
             dataSource,
-            new VanillaBpConfigurationProperties());
+            new VanillaBpConfigurationProperties(),
+            context.getBeanProvider(
+                io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.class),
+            context.getBeanProvider(com.gruelbox.transactionoutbox.TransactionOutboxListener.class));
     return new GruelboxPhaseTwoOutbox(transactionOutbox, dataSource, TABLE);
 
   }

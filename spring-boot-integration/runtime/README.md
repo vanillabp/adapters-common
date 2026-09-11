@@ -235,6 +235,17 @@ disable an unwanted default via its `enabled` flag:
    `GruelboxOutboxSchemaHandoverTest` the handover to an application-managed schema,
    `GruelboxDeduplicationWindowTest` the released key of a dispatched entry, and
    `EnableSchedulingRegressionTest#noVanillaBpTaskSchedulerBean` the private executor.
+   What gruelbox has no idea of is VanillaBP's classification of a failure, so
+   `GruelboxPhaseTwoFailureListener` is registered on the outbox: it blocks an entry the
+   adapter called permanent (`PhaseTwoPermanentFailure`) after the first attempt by
+   writing the blocked flag through the persistor, and it gives every blocked entry an
+   ERROR naming the workflow, because gruelbox' own line names the entry id only. It is
+   handed the persistor and the transaction manager the outbox was built with, and it
+   works because gruelbox calls a listener AFTER it committed the failed attempt, so the
+   entry carries the version that write left behind. Listener beans the application
+   brings are chained behind it (`TransactionOutboxListener#andThen`) - gruelbox takes
+   exactly one. Held by `GruelboxBlocksAPermanentFailureTest` and, on the running
+   application, by `PermanentPhaseTwoFailureTest` of `outbox-jpa-integration-test`.
 2. **MongoDB (own implementation, gruelbox is JDBC-only):** `MongoPhaseTwoOutbox`
    writes entries into the collection `vanillabp-phase-two-outbox` via
    `MongoTemplate` within the current transaction, persisting all `PhaseTwoCall`
