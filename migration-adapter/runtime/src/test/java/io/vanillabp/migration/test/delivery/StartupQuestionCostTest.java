@@ -15,24 +15,35 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.vanillabp.integration.adapter.migration.delivery.JdbcConnectionAccess;
 import io.vanillabp.integration.adapter.migration.delivery.JdbcTaskDeliveryStore;
+import io.vanillabp.integration.adapter.migration.scoping.NameClashAvoidanceService;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.IdentifierHeldElsewhere;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ScopedIdentifierKind;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.integration.spi.TaskDelivery;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What a start asks the delivery log, and what that costs - decision 19 in the
- * repository's DECISIONS.md.
+ * What a start asks, and what that costs - decision 19 in the repository's DECISIONS.md.
  * <p>
- * The two questions the startup checks put to the store are answered from the whole
+ * The two questions the startup checks put to the delivery log are answered from the whole
  * table, so both of them could grow with everything the application ever recorded. What
  * keeps them from doing so is not visible in the answer: the question about EXISTENCE
  * looks identical whether it transfers one row or a hundred thousand, because the code
  * reads the first row either way and the rest happens inside the driver. So this test
  * watches the statements instead of the answers, and it does so against a table which
  * holds more than one open record - the case where a missing row limit costs something.
+ * <p>
+ * The question about the identifiers a BPMS already holds is measured here as well, from
+ * the side this repository owns. The query is the adapter's, but what comes back grows with
+ * everything ever deployed into that BPMS, and the core turning it into a hundred messages
+ * would cost a start as surely as a hundred statements would.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class StartupQuestionCostTest {
@@ -205,6 +216,49 @@ public class StartupQuestionCostTest {
     assertTrue(
         theOnly("SELECT DISTINCT ADAPTER_ID").sql().contains("DISTINCT"),
         "the database reduces the records to the ids, not the application");
+
+  }
+
+  /**
+   * How many records the core writes while an adapter reports the given number of
+   * identifiers its BPMS already held.
+   */
+  private static int messagesWhileReporting(
+      final int heldIdentifiers) {
+
+    final var found = java.util.stream.IntStream
+        .range(0, heldIdentifiers)
+        .mapToObj(
+            number -> new IdentifierHeldElsewhere(
+                ScopedIdentifierKind.BPMN_PROCESS_ID, "Process%d"
+                    .formatted(number), null, "a definition deployed earlier", true))
+        .toList();
+
+    final var root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+    final var recorded = new ListAppender<ILoggingEvent>();
+    recorded.start();
+    root.addAppender(recorded);
+    try {
+      new NameClashAvoidanceService(null).reportIdentifiersTheBpmsAlreadyHolds("c7", MODULE, found);
+    } finally {
+      root.detachAppender(recorded);
+    }
+    return recorded.list.size();
+
+  }
+
+  @Test
+  @DisplayName("What the BPMS already holds is one message per workflow module, however much it holds")
+  public void theIdentifiersTheBpmsHoldsCostOneMessagePerWorkflowModule() {
+
+    final var onAFreshBpms = messagesWhileReporting(1);
+    final var afterYearsOfDeployments = messagesWhileReporting(500);
+
+    assertEquals(1, onAFreshBpms, "a finding is worth one message, not one per line");
+    assertEquals(
+        onAFreshBpms,
+        afterYearsOfDeployments,
+        "a start reports this once per workflow module and adapter, whatever the BPMS has collected");
 
   }
 
