@@ -42,6 +42,7 @@ public class PermanentPhaseTwoFailureTest {
           .addClass(AggregatePersistence.class)
           .addClass(WorkflowService.class)
           .addClass(RecordingPhaseTwoListener.class)
+          .addClass(TestMeterRegistryProducer.class)
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"))
       .overrideRuntimeConfigKey("quarkus.datasource.jdbc.url", "jdbc:h2:mem:outbox-permanent-it;DB_CLOSE_DELAY=-1");
 
@@ -66,6 +67,9 @@ public class PermanentPhaseTwoFailureTest {
   @Inject
   DataSource dataSource;
 
+  @Inject
+  io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry;
+
   @BeforeEach
   public void resetListener() {
 
@@ -88,6 +92,7 @@ public class PermanentPhaseTwoFailureTest {
   @DisplayName("A failure repeating cannot fix blocks the entry after the first attempt")
   public void permanentFailureBlocksTheEntryImmediately() throws Exception {
 
+    final var blockedEntriesCounted = blockedEntriesCounted();
     listener.failNextDispatchesPermanently(1);
 
     userTransaction.begin();
@@ -114,6 +119,38 @@ public class PermanentPhaseTwoFailureTest {
             .filter(attachedAggregate.getId()::equals)
             .count(),
         "the dispatch must not be repeated");
+
+    assertEquals(
+        blockedEntriesCounted + 1.0,
+        blockedEntriesCounted(),
+        "a blocked entry is counted, because the gauge of waiting entries falls at that moment");
+
+  }
+
+  /**
+   * The counter of blocked entries, or zero while nothing was blocked yet and the meter
+   * does not exist. Read as a difference because the sibling test below blocks an entry
+   * too and the order of the two is nobody's promise.
+   *
+   * @return How many entries of the JDBC store were blocked for a permanent failure
+   */
+  private double blockedEntriesCounted() {
+
+    final var counter = meterRegistry
+        .find(io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.OUTBOX_BLOCKED)
+        .tag(
+            io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.TAG_STORE,
+            "JdbcPhaseTwoOutbox")
+        .tag(
+            io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.TAG_OPERATION,
+            io.vanillabp.integration.spi.PhaseOperation.START_WORKFLOW.name())
+        .tag(
+            io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics.TAG_PERMANENT,
+            "true")
+        .counter();
+    return counter == null
+        ? 0.0
+        : counter.count();
 
   }
 

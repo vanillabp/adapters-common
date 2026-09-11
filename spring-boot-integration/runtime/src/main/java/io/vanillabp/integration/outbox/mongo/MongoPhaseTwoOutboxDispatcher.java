@@ -66,6 +66,12 @@ public class MongoPhaseTwoOutboxDispatcher {
    */
   private final String collection;
 
+  /**
+   * What a blocked entry is counted into. A provider and not the bean itself, because
+   * Micrometer is optional and the application may bring no metrics at all.
+   */
+  private final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics;
+
   private ScheduledExecutorService poller;
 
   /**
@@ -190,6 +196,7 @@ public class MongoPhaseTwoOutboxDispatcher {
             Query.query(Criteria.where("_id").is(entry.getId())),
             blockEntry(entry.getId()),
             collection);
+        countBlockedEntry(entry.getOperation(), true);
         log.error(
             "Dispatching phase two ({}) of BPMN process '{}' of workflow module '{}' for aggregate '{}' "
                 + "failed for a reason repeating cannot fix - the outbox entry '{}' is blocked and has "
@@ -207,6 +214,7 @@ public class MongoPhaseTwoOutboxDispatcher {
             Query.query(Criteria.where("_id").is(entry.getId())),
             blockEntry(entry.getId()),
             collection);
+        countBlockedEntry(entry.getOperation(), false);
         log.error(
             "Dispatching phase two ({}) of BPMN process '{}' of workflow module '{}' for aggregate '{}' "
                 + "failed {} times - the outbox entry '{}' is now blocked and has to be cleaned up manually!",
@@ -264,6 +272,24 @@ public class MongoPhaseTwoOutboxDispatcher {
             e);
       }
     }
+
+  }
+
+  /**
+   * Counts an entry this store gave up on. The gauge of waiting entries drops at the
+   * same moment, so without this counter the only number an operator watches would move
+   * as if things had got better.
+   *
+   * @param operation The persisted name of the operation which was lost
+   * @param permanent Whether the adapter said that repeating cannot help
+   */
+  private void countBlockedEntry(
+      final String operation,
+      final boolean permanent) {
+
+    io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoConfiguration
+        .vanillaBpMetricsOf(metrics)
+        .outboxEntryBlocked(MongoPhaseTwoOutbox.class.getSimpleName(), operation, permanent);
 
   }
 

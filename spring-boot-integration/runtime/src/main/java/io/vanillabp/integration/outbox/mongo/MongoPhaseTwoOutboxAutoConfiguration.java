@@ -64,6 +64,8 @@ public class MongoPhaseTwoOutboxAutoConfiguration {
    * @param vanillaBpProperties The bound <code>vanillabp.*</code> tree carrying the
    *          <code>vanillabp.outbox</code> section (registered here as well so the
    *          outbox works in contexts without the full VanillaBP auto-configuration)
+   * @param metrics Provider of what a blocked entry is counted into; Micrometer is
+   *          optional, so the bean may legitimately be absent
    * @return The dispatcher polling the outbox collection (private single-thread
    *         executor - no {@link org.springframework.scheduling.TaskScheduler}
    *         involved)
@@ -72,13 +74,14 @@ public class MongoPhaseTwoOutboxAutoConfiguration {
   public MongoPhaseTwoOutboxDispatcher vanillaBpMongoPhaseTwoOutboxDispatcher(
       final MongoTemplate mongoTemplate,
       final ObjectProvider<PhaseTwoRouter> phaseTwoRouter,
-      final VanillaBpConfigurationProperties vanillaBpProperties) {
+      final VanillaBpConfigurationProperties vanillaBpProperties,
+      final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics) {
 
     return new MongoPhaseTwoOutboxDispatcher(
         mongoTemplate, phaseTwoRouter, vanillaBpProperties.getOutbox(), vanillaBpProperties
             .getOutbox()
             .getMongo()
-            .getCollection());
+            .getCollection(), metrics);
 
   }
 

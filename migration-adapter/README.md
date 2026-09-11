@@ -2784,6 +2784,12 @@ does is inside it, and nothing had to be repeated per BPMS.
   (a health endpoint has to answer even when an adapter misbehaves) and computes the overall
   status, where `UNKNOWN` is not worse than `UP`: an adapter which is not configured yet is
   not an outage.
+- `vanillabp.outbox.blocked` counts the entries a store gave up on, tagged `store`,
+  `operation` and `permanent`. It has to exist next to the backlog gauge rather than being read
+  off it, because a blocked entry stops waiting: `vanillabp.outbox.pending` falls at the very
+  moment an operation was lost, so it alone reads as if the backlog had drained. Every store
+  counts one where it writes the block, whether the adapter called the failure permanent or
+  `vanillabp.outbox.block-after-attempts` ran out, so the number is the same on all four.
 - The outbox backlog is `PhaseTwoOutbox#pendingCalls()`, an `OptionalLong` defaulting to empty.
   A store which cannot count publishes no gauge, which is honest where a zero would not be.
   All four stores VanillaBP ships implement it with one indexed count; gruelbox has no API for

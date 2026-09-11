@@ -286,6 +286,29 @@ public class MicrometerVanillaBpMetrics implements VanillaBpMetrics, MeterBinder
 
   }
 
+  @Override
+  public void outboxEntryBlocked(
+      final String store,
+      final String operation,
+      final boolean permanent) {
+
+    final var meterRegistry = registry;
+    if (meterRegistry == null) {
+      return;
+    }
+
+    counter(
+        meterRegistry,
+        OUTBOX_BLOCKED,
+        "Outbox entries a store gave up on, which stay until somebody repairs them",
+        Tags.of(
+            TAG_STORE, tagValue(store),
+            TAG_OPERATION, tagValue(operation),
+            TAG_PERMANENT, Boolean.toString(permanent)))
+        .increment();
+
+  }
+
   /**
    * The supplier is NOT registered as the gauge reads it. Counting the waiting entries
    * of an outbox is a query, a gauge is read on every collection, and every instance of

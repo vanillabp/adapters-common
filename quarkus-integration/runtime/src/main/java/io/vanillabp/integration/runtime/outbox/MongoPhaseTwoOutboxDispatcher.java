@@ -80,6 +80,14 @@ public class MongoPhaseTwoOutboxDispatcher {
   @Inject
   Instance<PhaseTwoRouter> phaseTwoRouter;
 
+  /**
+   * What a blocked entry is counted into. Unsatisfied where the application uses no
+   * Micrometer extension, which is why it is resolved through the producer's helper
+   * rather than injected directly.
+   */
+  @Inject
+  Instance<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> vanillaBpMetrics;
+
   private volatile PhaseTwoOutboxProperties properties;
 
   /**
@@ -301,6 +309,7 @@ public class MongoPhaseTwoOutboxDispatcher {
         collection.updateOne(
             Filters.eq("_id", entryId),
             blockEntry(entryId));
+        countBlockedEntry(entry.getString("operation"), true);
         log.error(
             "Dispatching phase two ({}) of BPMN process '{}' of workflow module '{}' for aggregate '{}' "
                 + "failed for a reason repeating cannot fix - the outbox entry '{}' is blocked and has "
@@ -317,6 +326,7 @@ public class MongoPhaseTwoOutboxDispatcher {
         collection.updateOne(
             Filters.eq("_id", entryId),
             blockEntry(entryId));
+        countBlockedEntry(entry.getString("operation"), false);
         log.error(
             "Dispatching phase two ({}) of BPMN process '{}' of workflow module '{}' for aggregate '{}' "
                 + "failed {} times - the outbox entry '{}' is now blocked and has to be cleaned up manually!",
@@ -372,6 +382,24 @@ public class MongoPhaseTwoOutboxDispatcher {
             e);
       }
     }
+
+  }
+
+  /**
+   * Counts an entry this store gave up on. The gauge of waiting entries drops at the
+   * same moment, so without this counter the only number an operator watches would move
+   * as if things had got better.
+   *
+   * @param operation The persisted name of the operation which was lost
+   * @param permanent Whether the adapter said that repeating cannot help
+   */
+  private void countBlockedEntry(
+      final String operation,
+      final boolean permanent) {
+
+    io.vanillabp.integration.runtime.processservice.PhaseTwoRouterProducer
+        .vanillaBpMetricsOf(vanillaBpMetrics)
+        .outboxEntryBlocked(MongoPhaseTwoOutbox.class.getSimpleName(), operation, permanent);
 
   }
 
