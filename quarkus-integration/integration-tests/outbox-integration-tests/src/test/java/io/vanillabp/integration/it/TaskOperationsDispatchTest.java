@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import javax.sql.DataSource;
+
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,26 +63,96 @@ public class TaskOperationsDispatchTest {
   @Inject
   UserTransaction userTransaction;
 
+  @Inject
+  DataSource dataSource;
+
+  /**
+   * An entry deduplicates and can be re-dispatched for as long as it is OPEN, which the
+   * dispatcher ends one UPDATE after the listener ran. A BLOCKED entry is left out: it has
+   * released its key and waits for a person, so a test which waited for it would wait for
+   * ever.
+   */
+  private static final String COUNT_ENTRIES_NOT_DONE = "SELECT COUNT(*) FROM VANILLABP_PHASE_TWO_OUTBOX "
+      + "WHERE AGGREGATE_ID = '%s' AND STATUS = 'OPEN'";
+
   @BeforeEach
   public void reset() {
 
     listener.reset();
     awareness.answerWith(WorkflowAwareness.UNKNOWN_TO_BPMS);
+    awareness.alwaysVisible();
 
   }
 
+  @AfterEach
+  public void forgetWhatThisTestSteered() {
+
+    // the awareness source is a bean of the application all test methods of this class
+    // share, so a window one of them opened has to be closed here rather than at the end
+    // of that method: a method which fails leaves its window behind, and every workflow
+    // probe of the next one then reports "not visible yet" for nothing
+    awareness.alwaysVisible();
+
+  }
+
+  /**
+   * Waits until the store holds nothing undone for this aggregate.
+   *
+   * @param aggregate The aggregate whose entries have to be through
+   */
+  private void awaitNothingLeftUndone(
+      final Aggregate aggregate) throws Exception {
+
+    final var deadline = System.currentTimeMillis() + 30_000;
+    while (countEntriesNotDone(aggregate) > 0) {
+      assertTrue(
+          System.currentTimeMillis() < deadline,
+          "an entry of aggregate '%s' was never marked DONE".formatted(aggregate.getId()));
+      Thread.sleep(50);
+    }
+
+  }
+
+  private long countEntriesNotDone(
+      final Aggregate aggregate) throws Exception {
+
+    try (var connection = dataSource.getConnection(); var statement = connection
+        .createStatement(); var resultSet = statement
+            .executeQuery(COUNT_ENTRIES_NOT_DONE.formatted(aggregate.getId()))) {
+      resultSet.next();
+      return resultSet.getLong(1);
+    }
+
+  }
+
+  /**
+   * A workflow whose start is THROUGH: the outbox entry of its phase two is dispatched and
+   * marked DONE.
+   * <p>
+   * Waiting for the listener instead would answer a different question. The listener runs
+   * INSIDE the dispatch, one UPDATE before the dispatcher marks the entry DONE, so it says
+   * that the adapter was called and not that the entry is finished. Everything the tests
+   * below do next - steering what the adapter answers, planning a second operation on the
+   * same workflow - reads as if the start were over, and only the store knows whether it
+   * is.
+   *
+   * @param content What the aggregate carries, one value per test
+   * @return The attached aggregate
+   */
   private Aggregate startedAggregate(
       final String content) throws Exception {
 
     userTransaction.begin();
+    final Aggregate aggregate;
     try {
-      final var aggregate = workflowService.startWorkflow(content);
+      aggregate = workflowService.startWorkflow(content);
       userTransaction.commit();
-      return aggregate;
     } catch (final Exception e) {
       userTransaction.rollback();
       throw e;
     }
+    awaitNothingLeftUndone(aggregate);
+    return aggregate;
 
   }
 
@@ -88,7 +161,6 @@ public class TaskOperationsDispatchTest {
   public void taskOperationsDispatchAfterCommit() throws Exception {
 
     final var aggregate = startedAggregate("task-ops");
-    listener.awaitInvocations(1, 30_000);
     awareness.answerWith(WorkflowAwareness.ACTIVE);
 
     userTransaction.begin();
@@ -127,7 +199,6 @@ public class TaskOperationsDispatchTest {
   public void userTaskOperationsDispatchAfterCommit() throws Exception {
 
     final var aggregate = startedAggregate("user-task-ops");
-    listener.awaitInvocations(1, 30_000);
     awareness.answerWith(WorkflowAwareness.ACTIVE);
 
     userTransaction.begin();
@@ -163,7 +234,6 @@ public class TaskOperationsDispatchTest {
   public void correlateMessageDispatchesAfterCommit() throws Exception {
 
     final var aggregate = startedAggregate("correlate");
-    listener.awaitInvocations(1, 30_000);
     awareness.answerWith(WorkflowAwareness.ACTIVE);
 
     userTransaction.begin();
@@ -244,7 +314,6 @@ public class TaskOperationsDispatchTest {
   public void aWorkflowStartedHereIsPlannedWhileTheBpmsCatchesUp() throws Exception {
 
     final var aggregate = startedAggregate("correlate-not-visible-yet");
-    listener.awaitInvocations(1, 30_000);
     listener.reset();
     // the start recorded which adapter holds the workflow, and that adapter does not
     // report it yet - the everyday state of an exporter-fed read model
@@ -271,8 +340,6 @@ public class TaskOperationsDispatchTest {
         .getCorrelatedMessages()
         .contains(aggregate.getId()
             + ":PaymentReceived:null"));
-    // the window is state of a bean the test classes of this module share
-    awareness.alwaysVisible();
 
   }
 
@@ -281,7 +348,6 @@ public class TaskOperationsDispatchTest {
   public void completedWorkflowCorrelationIsNoOp() throws Exception {
 
     final var aggregate = startedAggregate("correlate-completed");
-    listener.awaitInvocations(1, 30_000);
     awareness.answerWith(WorkflowAwareness.COMPLETED);
 
     userTransaction.begin();
@@ -331,7 +397,6 @@ public class TaskOperationsDispatchTest {
   public void rollbackAndUnknownTask() throws Exception {
 
     final var aggregate = startedAggregate("task-rollback");
-    listener.awaitInvocations(1, 30_000);
     awareness.answerWith(WorkflowAwareness.ACTIVE);
 
     userTransaction.begin();
