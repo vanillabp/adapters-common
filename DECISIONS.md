@@ -1316,3 +1316,32 @@ as a caller guessing, which is what the extension seam used to do.
 What this does not do is remove the second writer. Two writers still commit one after the other
 inside one transaction, and an application writing from a thread of its own is untouched by any of
 this. It shrinks the window to the length of one transaction instead of the length of a delivery.
+
+### 45. A handler allowed to save is warned about where nothing would notice the loss
+
+Entry 14 warns about a BPMN model which can hold two tokens while its workflow aggregate has no
+version attribute. That covers the second writer which stands in the drawing. It does not cover the
+one a dependency brings: an extension may have VanillaBP save the aggregate after a handler of the
+application ran, which is a writer nobody sees in the model and nobody configured.
+
+So the same warning is given for that as well, once per BPMN process, naming the extension and its
+annotation. Nothing else changes. There is no check while the application runs, no detection of the
+conflict, no second report and no refusal to boot, now or after 1.0: an application whose handlers
+write and whose aggregate cannot notice a second writer has made a decision, and what it is owed is
+to be told which one.
+
+A boot can only say that the handler MAY save. Whether a single call saves is the extension's choice
+per call, and an extension asking for a reading handler says so at the call. The message is worded
+accordingly. Warning about what is allowed says something where nothing happened; saying nothing
+until a write is lost says nothing where it mattered, and of the two only the first can be read and
+dismissed.
+
+The question goes to the persistence of the aggregate, not to an annotation of the class.
+`AggregatePersistenceAware.detectsConcurrentModification` answers it, its default looks for the
+attribute every supported persistence layer calls `Version`, and a store which notices a second
+writer some other way overrides it and is then quiet. Writing the question per technology would be
+the same question several times, and it would have no answer at all for a store VanillaBP does not
+know.
+
+Nothing is asked of a database for it. The answer comes from the aggregate's class, and the question
+is put once per BPMN process, which is the shape entry 19 asks of everything a start does.

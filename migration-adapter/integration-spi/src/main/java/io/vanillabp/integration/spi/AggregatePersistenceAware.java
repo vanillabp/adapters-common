@@ -138,6 +138,31 @@ public interface AggregatePersistenceAware<A> {
   }
 
   /**
+   * Whether this persistence layer notices that somebody else changed the aggregate in
+   * between, instead of writing over it without a word.
+   * <p>
+   * VanillaBP asks while the application starts, to warn about an aggregate which a
+   * handler is allowed to save and which nothing can protect. A second writer is not
+   * exotic: the application writes from its own endpoint, a BPMN model with two tokens
+   * writes from two branches, an extension writes while it reports. Where the answer is
+   * <code>false</code> the later write wins and nobody learns of the earlier one.
+   * <p>
+   * <b>This default does NOT throw</b> (unlike most of the others): it looks for the
+   * attribute a persistence layer increments per write, by reflection and by the name every
+   * supported layer gives the annotation (see {@link VersionAttribute}). A store which
+   * notices a second writer some other way - a ledger which appends, an event store, a
+   * document store with its own condition - overrides this and says so, and then the
+   * warning stays away.
+   *
+   * @return Whether a concurrent change of this aggregate is noticed rather than overwritten
+   */
+  default boolean detectsConcurrentModification() {
+
+    return VersionAttribute.isDeclaredBy(getAggregateClass());
+
+  }
+
+  /**
    * Loads the aggregate by its ID. Used by VanillaBP e.g. when processing BPMN
    * tasks (the aggregate is loaded, the business method is executed and the
    * aggregate is saved within one transaction).

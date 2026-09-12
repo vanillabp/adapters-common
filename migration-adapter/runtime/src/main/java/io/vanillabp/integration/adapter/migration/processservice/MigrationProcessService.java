@@ -578,6 +578,20 @@ public class MigrationProcessService<A> {
   }
 
   /**
+   * Whether the persistence of this workflow aggregate notices a second writer instead of
+   * writing over it. Asked while the application starts, by the checks which warn about an
+   * aggregate nothing can protect - and asked of the persistence rather than of an
+   * annotation, because a store may notice a second writer in a way of its own.
+   *
+   * @return What the aggregate's persistence answers
+   */
+  public boolean detectsConcurrentModification() {
+
+    return aggregatePersistenceSupport.detectsConcurrentModification();
+
+  }
+
+  /**
    * Processes a BPMN task: loads the workflow aggregate by the context's serialized
    * ID, invokes the given <code>&#64;WorkflowTask</code> handler and saves the
    * aggregate - all within one transaction run by the given
