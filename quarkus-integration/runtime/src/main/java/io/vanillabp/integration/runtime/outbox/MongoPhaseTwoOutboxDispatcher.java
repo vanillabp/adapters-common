@@ -142,6 +142,12 @@ public class MongoPhaseTwoOutboxDispatcher {
       outboxCollection().createIndex(
           Indexes.ascending("dedupKey"),
           new IndexOptions().unique(true));
+      // what this dispatcher asks on every wake-up, and two indexes rather than one: both questions
+      // filter the same status and order by a different moment, so an index over both moments would
+      // serve neither. Without them each question reads the whole collection, which costs more the
+      // longer the application has been running
+      outboxCollection().createIndex(Indexes.ascending("status", "nextAttemptAt"));
+      outboxCollection().createIndex(Indexes.ascending("status", "doneAt"));
       dropLegacyIdempotencyKeyIndex();
     }
 
@@ -237,8 +243,8 @@ public class MongoPhaseTwoOutboxDispatcher {
 
   /**
    * The smallest value of one field among the documents a filter matches, read as one
-   * document rather than as an aggregation, so the sort is served by an index where the
-   * application created one.
+   * document rather than as an aggregation, so the sort is served by the index this store creates
+   * over the status and that field.
    *
    * @param collection The outbox collection
    * @param filter What to look at

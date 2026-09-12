@@ -137,8 +137,8 @@ public class MongoPhaseTwoOutboxDispatcher {
 
   /**
    * The smallest value of one field among the documents a query matches, read as one
-   * document rather than as an aggregation, so the sort is served by an index where the
-   * application created one.
+   * document rather than as an aggregation, so the sort is served by the index this store creates
+   * over the status and that field.
    *
    * @param query What to look at
    * @param field The field to order by and to read

@@ -307,8 +307,8 @@ public class JdbcPhaseTwoOutboxDispatcher {
   /**
    * When this store owes something: the due time of the earliest entry waiting for its
    * dispatch, or the moment the oldest dispatched entry may be deleted, whichever comes
-   * first. Two aggregates over one connection, each of which a database can answer from an
-   * index over STATUS and the timestamp.
+   * first. Two aggregates over one connection, each answered from the index this store creates
+   * over STATUS and that question's timestamp.
    *
    * @return The earliest of the two moments, or <code>null</code> where the table holds
    *         neither
@@ -357,16 +357,31 @@ public class JdbcPhaseTwoOutboxDispatcher {
 
   }
 
+  /**
+   * The index the poller asks its question along. STATUS first and the timestamp second, which is
+   * the order both the aggregate and the select of the due entries read them in.
+   */
+  private static final String CREATE_DUE_INDEX = "CREATE INDEX %s_DUE ON %s (STATUS, NEXT_ATTEMPT_AT)";
+
+  /**
+   * The index the retention deletes along. A second one rather than more columns in the first,
+   * because the two questions filter the same STATUS and order by different timestamps.
+   */
+  private static final String CREATE_AGE_INDEX = "CREATE INDEX %s_AGE ON %s (STATUS, DONE_AT)";
+
   private void createTableIfNotExists() {
 
     try (var connection = dataSource.get().getConnection()) {
       // existence is checked via JDBC metadata since 'CREATE TABLE IF NOT EXISTS'
       // is not supported by all databases (e.g. Oracle, SQL Server)
       if (JdbcSchema.tableExists(connection, tableName)) {
+        reportMissingIndexes(connection);
         return;
       }
       try (var statement = connection.createStatement()) {
         statement.executeUpdate(buildCreateTable(connection, tableName));
+        statement.executeUpdate(CREATE_DUE_INDEX.formatted(tableName, tableName));
+        statement.executeUpdate(CREATE_AGE_INDEX.formatted(tableName, tableName));
       }
     } catch (SQLException e) {
       if (createdConcurrently()) {
@@ -416,6 +431,7 @@ public class JdbcPhaseTwoOutboxDispatcher {
 
     try (var connection = dataSource.get().getConnection()) {
       if (JdbcSchema.tableExists(connection, tableName)) {
+        reportMissingIndexes(connection);
         return;
       }
       throw new IllegalStateException(
@@ -433,6 +449,48 @@ public class JdbcPhaseTwoOutboxDispatcher {
       throw new IllegalStateException(
           "Could not check whether the phase-two outbox table '%s' exists!".formatted(tableName), e);
     }
+
+  }
+
+  /**
+   * Names the indexes this table needs and does not have, with the statement which adds each of
+   * them. A table created by an earlier version of VanillaBP has neither, and the poller then asks
+   * its question as a sequential scan growing with everything the table ever held - which is a cost
+   * nobody sees until the table is large. A warning and not a failure: the application runs
+   * correctly without them, and creating an index on a large table is a decision with a lock on it,
+   * not something a boot should do behind its operator's back.
+   *
+   * @param connection The connection to the database holding the table
+   */
+  private void reportMissingIndexes(
+      final Connection connection) {
+
+    final var missing = new ArrayList<String>();
+    if (!JdbcSchema
+        .indexExists(
+            connection, tableName, tableName
+                + "_DUE")) {
+      missing.add(CREATE_DUE_INDEX.formatted(tableName, tableName));
+    }
+    if (!JdbcSchema
+        .indexExists(
+            connection, tableName, tableName
+                + "_AGE")) {
+      missing.add(CREATE_AGE_INDEX.formatted(tableName, tableName));
+    }
+    if (missing.isEmpty()) {
+      return;
+    }
+    log
+        .warn(
+            """
+                The phase-two outbox table '{}' is missing {} index(es) this version reads by, so \
+                every poll of it scans the whole table. Run:
+                  {};
+                Until then the outbox works and gets slower as the table grows.""",
+            tableName,
+            missing.size(),
+            String.join(";\n  ", missing));
 
   }
 

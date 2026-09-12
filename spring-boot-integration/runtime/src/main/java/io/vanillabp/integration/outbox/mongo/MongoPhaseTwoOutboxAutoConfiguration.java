@@ -113,6 +113,20 @@ public class MongoPhaseTwoOutboxAutoConfiguration {
           .createIndex(new Index()
               .on("dedupKey", Sort.Direction.ASC)
               .unique());
+      // what the dispatcher asks on every wake-up, and two indexes rather than one: both questions
+      // filter the same status and order by a different moment, so an index over both moments would
+      // serve neither. Without them each question reads the whole collection, which costs more the
+      // longer the application has been running
+      mongoTemplate
+          .indexOps(collection)
+          .createIndex(new Index()
+              .on("status", Sort.Direction.ASC)
+              .on("nextAttemptAt", Sort.Direction.ASC));
+      mongoTemplate
+          .indexOps(collection)
+          .createIndex(new Index()
+              .on("status", Sort.Direction.ASC)
+              .on("doneAt", Sort.Direction.ASC));
       dropLegacyIdempotencyKeyIndex(mongoTemplate, collection);
     }
     return new MongoPhaseTwoOutbox(mongoTemplate, dispatcher, collection);

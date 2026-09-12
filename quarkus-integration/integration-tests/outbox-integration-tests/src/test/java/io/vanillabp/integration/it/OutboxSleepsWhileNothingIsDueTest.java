@@ -132,6 +132,39 @@ public class OutboxSleepsWhileNothingIsDueTest {
   }
 
   @Test
+  @DisplayName("The questions the poller asks are answered from an index")
+  public void theQuestionsOfThePollerAreIndexed() throws Exception {
+
+    // without these the aggregate asking when the next entry is due reads the whole table, and
+    // that cost grows with everything the table ever held while the wake-ups stay as rare
+    final var indexed = new java.util.LinkedHashMap<String, java.util.List<String>>();
+    try (var connection = dataSource.getConnection(); var resultSet = connection
+        .getMetaData()
+        .getIndexInfo(null, null, "VANILLABP_PHASE_TWO_OUTBOX", false, true)) {
+      while (resultSet.next()) {
+        final var name = resultSet.getString("INDEX_NAME");
+        if (name != null) {
+          indexed
+              .computeIfAbsent(name.toUpperCase(), index -> new java.util.ArrayList<>())
+              .add(resultSet.getString("COLUMN_NAME"));
+        }
+      }
+    }
+
+    assertEquals(
+        java.util.List.of("STATUS", "NEXT_ATTEMPT_AT"),
+        indexed.get("VANILLABP_PHASE_TWO_OUTBOX_DUE"),
+        "the due question and the select which picks the entries up read these two: "
+            + indexed);
+    assertEquals(
+        java.util.List.of("STATUS", "DONE_AT"),
+        indexed.get("VANILLABP_PHASE_TWO_OUTBOX_AGE"),
+        "the retention question and its delete read these two: "
+            + indexed);
+
+  }
+
+  @Test
   @DisplayName("The commit still dispatches at once, an hour of cap notwithstanding")
   public void theCommitStillDispatchesAtOnce() throws Exception {
 

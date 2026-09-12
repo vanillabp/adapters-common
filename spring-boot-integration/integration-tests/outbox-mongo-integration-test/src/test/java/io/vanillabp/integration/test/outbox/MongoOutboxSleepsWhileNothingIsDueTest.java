@@ -107,6 +107,27 @@ public class MongoOutboxSleepsWhileNothingIsDueTest {
   }
 
   @Test
+  @DisplayName("The questions the poller asks are answered from an index")
+  public void theQuestionsOfThePollerAreIndexed() {
+
+    // without these each question reads the whole collection, and that cost grows with everything
+    // the collection ever held while the wake-ups stay as rare
+    final var keys = new java.util.ArrayList<org.bson.Document>();
+    mongoTemplate.getCollection(OUTBOX_COLLECTION).listIndexes()
+        .forEach(index -> keys.add(index.get("key", org.bson.Document.class)));
+
+    assertTrue(
+        keys.contains(new org.bson.Document("status", 1).append("nextAttemptAt", 1)),
+        "the due question and the claim which picks an entry up read these two: "
+            + keys);
+    assertTrue(
+        keys.contains(new org.bson.Document("status", 1).append("doneAt", 1)),
+        "the retention question and its delete read these two: "
+            + keys);
+
+  }
+
+  @Test
   @DisplayName("Nothing is asked of the collection while the store owes nothing")
   public void aQuietStoreIsAskedNothing() throws Exception {
 
