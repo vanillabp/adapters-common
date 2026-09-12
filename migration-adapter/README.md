@@ -687,8 +687,35 @@ invokes that only for more than one id of a type), and
 deployed processes are known. Changing the mode is a BPMS **migration**, not a
 property change — hence a differing mode makes two adapter ids of one type distinct.
 
-`validateNoCollidingProcessIds` compares one deployment against itself, which leaves
-out whatever somebody else put into the same BPMS earlier: another application's
+`validateNoCollidingProcessIds` is the one check of this family which REFUSES, because it
+is the one clash which loses a model: the BPMS keeps one definition under the shared
+identifier and not the other, so a workflow module would run on a model nobody deployed.
+The two sides of such a clash live in two workflow modules and a deployment is per workflow
+module, so the core remembers what earlier calls of the boot passed, per adapter id, in the
+same map the two reports below fill. One map, because all three ask the same question: which
+workflow module already reaches the BPMS under this form. An adapter therefore hands over the
+processes of the module it is deploying and nothing wider, and two adapter ids never see each
+other's processes, which is what a migration between two ids of one BPMS type needs. The boot
+then ends while the second of the two modules deploys, with the first one already in the
+BPMS - decision 41 of this repository says why that is the lesser evil.
+
+What an equal pair of strings means depends on the mode, and under `BY_ADAPTER` the core
+cannot say. Nothing is prefixed there, so the scoped form is the plain form, and two workflow
+modules which a tenant keeps apart arrive as two equal strings: refusing them would end a
+boot which is correct today, in the DEFAULT mode. The isolation mechanism is the adapter's
+knowledge, so the core asks
+`AdapterDeploymentService#ownIsolationSeparatesWorkflowModules(one, another)` and refuses only
+where the answer is that nothing separates the two. The default answer is `false`, which
+reads as "my isolation separates nothing" and is the honest answer for a BPMS without any.
+An adapter answers about the scope it would REALLY deploy those two modules to rather than
+about a property it reads: `tenant-id` is resolvable per adapter, per workflow module and per
+workflow, so two modules can land in one tenant without a single line saying so. Under
+`USE_PREFIX` the core composed both strings itself and asks nobody, under `NONE` nothing is
+scoped and nothing separates the two by definition, and a mixed configuration is how one
+module's prefixed form meets another module's plain id.
+
+`validateNoCollidingProcessIds` compares one application's deployment against itself, which
+leaves out whatever somebody else put into the same BPMS earlier: another application's
 process id, a decision id of a module deployed years ago. Asking about those is the
 adapter's work, because only it can query its own BPMS, and
 `reportIdentifiersTheBpmsAlreadyHolds(adapterId, workflowModuleId, found)` is where the

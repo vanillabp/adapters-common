@@ -1145,3 +1145,44 @@ modules, `OldProcessVersionsTest` that the held versions are asked in the loop w
 models, and `StartupQuestionCostTest` that a boot says each of the three once per workflow module
 respectively per held version, however much the BPMS has collected and however many workflows run on
 it.
+
+### 41. Two workflow modules under one process id end the boot of the second one
+
+`validateNoCollidingProcessIds` exists for one clash: two BPMN processes of this application which
+reach the BPMS under the same identifier. The BPMS keeps one definition under that identifier and
+loses the other, so one of the two workflow modules runs on a model nobody deployed. That makes it
+the one name clash which is a refusal rather than a warning, unlike everything decision 38 and
+decision 40 cover.
+
+A deployment is per workflow module, so a caller can only ever hand over the processes of the module
+it is deploying, and the clash lives between two modules. Every caller did hand over one module, so
+the check was blind to the only case it was written for. What spans the modules is the map
+`NameClashAvoidanceService` already keeps for the reports about identifiers two modules share: the
+question is the same one, which workflow module already reaches the BPMS under this form, so the map
+answers it for BPMN process ids as well and no adapter needs a memory of its own. The map is keyed by
+adapter id, and that is not a detail: two adapter ids of one BPMS type are what a migration looks
+like, each deploys into its own scope, and neither may see the other's processes.
+
+Remembering across calls moves where the boot ends. It now fails while the SECOND of the two modules
+deploys, with the first one already in the BPMS. A half-deployed application is the lesser evil: the
+alternative is two workflow modules sharing a process id without anybody being told, an application
+which starts and then serves one module out of the other's model. The refusal names both modules and
+both plain process ids, so the developer does not have to work out which two deployments met.
+
+A naive widening would have refused applications which are correct today, and working out why decided
+the shape of this. Under `by-adapter`, the default mode, nothing is prefixed, so the scoped form IS
+the plain form and two modules which a tenant keeps apart perfectly well arrive as two equal strings.
+The core cannot judge that, because the isolation mechanism is the adapter's knowledge, so it asks:
+`AdapterDeploymentService#ownIsolationSeparatesWorkflowModules` answers whether the BPMS itself would
+put the two modules into different scopes, and only a "no" is a collision. The default answer is
+"nothing", which is honest for a BPMS without isolation and is also the refusing side of a question
+an adapter has not answered yet. The adapter answers about the scope it would REALLY deploy those two
+modules to rather than about a property it reads, because `tenant-id` is resolvable per level and two
+modules can land in one tenant without one line of the application saying so. Under `use-prefix` the
+core composed both strings itself and asks nobody, under `none` nothing is scoped and nothing
+separates the two by definition, and a mixed configuration is how one module's prefixed form meets
+another module's plain id.
+
+`CollidingProcessIdsAcrossWorkflowModulesTest` holds all of it, both deployment orders included, and
+`StartupQuestionCostTest` holds that the adapter is asked once per pair of workflow modules rather
+than once per process, which is decision 19 applied to a question the core puts to an adapter.
