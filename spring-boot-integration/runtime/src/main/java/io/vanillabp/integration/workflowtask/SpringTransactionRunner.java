@@ -12,8 +12,8 @@ import io.vanillabp.integration.spi.TransactionRunner;
 
 /**
  * The Spring implementation of the core's {@link TransactionRunner} used to run
- * <code>&#64;WorkflowTask</code> handlers: {@link TransactionTemplate} with
- * propagation REQUIRES_NEW respectively MANDATORY. The
+ * <code>&#64;WorkflowTask</code> handlers: a {@link TransactionTemplate} per form the
+ * core asks for, with propagation REQUIRES_NEW, MANDATORY respectively REQUIRED. The
  * {@link PlatformTransactionManager} is resolved lazily - an application without
  * transactional persistence can still boot and gets a guiding message when the
  * first task is processed.
@@ -142,6 +142,23 @@ public class SpringTransactionRunner implements TransactionRunner {
       final Supplier<T> work) {
 
     return run(work, TransactionDefinition.PROPAGATION_MANDATORY);
+
+  }
+
+  /**
+   * Joins the transaction open on this thread and opens one where none is.
+   * <p>
+   * The outbox of this platform dispatches inside a transaction of its own where it is
+   * gruelbox-based, and the entry is ticked off in that transaction. A second one around
+   * the call would commit what the application wrote while the entry is still open, so a
+   * dispatch failing afterwards would repeat a call whose changes are already in the
+   * database.
+   */
+  @Override
+  public <T> T requireTransaction(
+      final Supplier<T> work) {
+
+    return run(work, TransactionDefinition.PROPAGATION_REQUIRED);
 
   }
 

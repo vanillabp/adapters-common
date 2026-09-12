@@ -47,6 +47,14 @@ import lombok.extern.slf4j.Slf4j;
  * A store built with the constructor which takes no data source cannot read that flag.
  * It falls back to gruelbox' own answer, which deduplicates against retained entries as
  * well - kept for tests, and named here so nobody mistakes it for the contract.
+ * <p>
+ * {@link PhaseTwoOutbox#adapterIdsOfPendingCalls(String, String)} is the one question of
+ * the contract this store leaves unanswered, so the startup check which names the adapter
+ * ids still waiting is skipped wherever this store is the one in use. gruelbox keeps a
+ * call as a serialized invocation rather than in columns, so there is no adapter id to
+ * ask about without reading and deserializing the whole table, which is the cost
+ * decision 19 in the repository's DECISIONS.md rules out for a start. The stores
+ * VanillaBP owns its tables in answer it.
  */
 @Slf4j
 public class GruelboxPhaseTwoOutbox implements PhaseTwoOutbox {
