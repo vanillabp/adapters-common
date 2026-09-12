@@ -265,6 +265,40 @@ public interface AdapterDeploymentService<BPMN, PC> extends ExtensionWiringServi
   }
 
   /**
+   * Whether this adapter's own isolation mechanism would put the two given workflow
+   * modules into DIFFERENT scopes of its BPMS. Asked by the core while it checks whether
+   * two BPMN processes reach the BPMS under one identifier
+   * ({@link NameClashAvoidanceSupport#validateNoCollidingProcessIds}) and the mode which
+   * applies is {@link NameClashAvoidance#BY_ADAPTER}. That mode leaves the identifiers
+   * plain, so the core holds two equal strings and still cannot say whether they collide:
+   * what keeps the modules apart there is the BPMS, and the mechanism is yours.
+   * <p>
+   * Answer about the scope you would REALLY deploy those two modules to, never about the
+   * configuration you happen to read. A tenant id is resolvable per adapter, per workflow
+   * module and per workflow, so two modules can land in one tenant without a single line of
+   * the application saying so. Resolve the scope for each of the two modules and compare
+   * the results, which is what both Camunda adapters do with their tenants. A module which
+   * would reach the BPMS under no scope at all has a scope like any other, and two such
+   * modules are not separated.
+   * <p>
+   * The default answers <code>false</code>, which reads as "my isolation separates
+   * nothing". That is the honest answer for a BPMS without isolation of its own, the
+   * Process-Engine-API being one, and it is also the safe side of a question an adapter has
+   * not answered yet: the check then refuses instead of letting a collision through.
+   *
+   * @param oneWorkflowModuleId One of the two workflow modules
+   * @param anotherWorkflowModuleId The other one
+   * @return Whether the BPMS itself would keep the two apart
+   */
+  default boolean ownIsolationSeparatesWorkflowModules(
+      final String oneWorkflowModuleId,
+      final String anotherWorkflowModuleId) {
+
+    return false;
+
+  }
+
+  /**
    * Reports that a workflow module reaches this adapter's BPMS with
    * {@link NameClashAvoidance#NONE}, so nothing keeps its identifiers apart from
    * those of the other workflow modules. Called by the core once per workflow module

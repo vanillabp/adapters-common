@@ -265,7 +265,28 @@ one habit: scope on the way out, at every boundary your BPMS sees, and unscope o
 the identifiers of an inbound delivery included.
 
 One more call on the support belongs to the same subject, and this one you make after your deploy
-command returned. `validateNoCollidingProcessIds` compares what this boot deploys against itself,
+command returned. `validateNoCollidingProcessIds` is the one check here which ends a boot, because
+two BPMN processes under one identifier leave your BPMS holding one definition and not the other.
+Hand over the processes of the workflow module you are deploying, with their PLAIN ids. The core
+remembers what your earlier calls of this boot passed, per adapter id, so the width of your
+collection decides nothing: a collision with a module deployed before this one is found either way,
+and your other adapter id never sees these processes.
+
+That check asks you one question back, and it is the only question of this SPI which is about your
+isolation rather than about your models. `ownIsolationSeparatesWorkflowModules(one, another)`
+answers whether your BPMS would put those two workflow modules into different scopes of its own.
+The core needs it because `by-adapter` prefixes nothing: the identifiers stay plain, so two modules
+which your tenant keeps apart look exactly like two modules which collide, and only you can tell the
+two cases apart. Answer about the scope you would REALLY deploy those two modules to, not about the
+configuration you read. A `tenant-id` is resolvable per adapter, per workflow module and per
+workflow, so resolve it for each of the two and compare the results; two modules can land in one
+tenant without one line of the application saying so. A module which would reach your BPMS under no
+scope at all has a scope like any other, and two of those are not separated. The default answers
+`false`, which reads as "my isolation separates nothing": that is the right answer for a BPMS without
+isolation, and it is also the safe side while you have not written the method, because the check then
+refuses instead of letting a collision through.
+
+`validateNoCollidingProcessIds` compares what this boot deploys against itself,
 which never sees the identifier another application put into your BPMS years ago. If your BPMS can
 be asked about the identifiers it holds, ask it for the ones this workflow module is about to
 deploy and hand the hits to
@@ -852,9 +873,11 @@ against the real thing; the double is for the tests where a BPMS is in the way.
    with the wiring calls, then `deployResources` ending with `registerDeployedVersion` per process,
    then `startWorkflowProcessing` and `stopWorkflowProcessing`. Every name-clash mode either served
    or refused with a message. The module-level checks which follow the deployment are the core's
-   and you call none of them; the only thing which comes back to you there is
-   `processVersionCatalogOf`, answering for an id the application declares without deploying it,
-   scoped the way you scope every other id. Those declared ids are also yours to ask about, with
+   and you call none of them; two things come back to you there. `processVersionCatalogOf` answers
+   for an id the application declares without deploying it,
+   scoped the way you scope every other id, and `ownIsolationSeparatesWorkflowModules` answers
+   whether your BPMS would put two given workflow modules into scopes of its own, which decides
+   whether two plain process ids reaching it as one string are a collision. Those declared ids are also yours to ask about, with
    `taskWiringOfProcessesNobodyDeployed`, wherever your BPMS hands the work of a renamed
    process out under a name your subscriptions do not carry.
 3. A handler per operation your BPMS can serve, and only the operations which allow it left out.
