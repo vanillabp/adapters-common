@@ -1571,9 +1571,17 @@ owes something to is due, and sleeps until exactly that moment. An entry due in 
 dispatched in four minutes rather than on the next tick, and a store which owes nothing is left
 alone. The question each store answers is its own due-entry select with the time bound dropped,
 plus the moment the oldest dispatched entry may be deleted, so one wake-up covers the dispatch
-and the retention; gruelbox answers both with one query because it keeps both moments in
-`nextAttemptTime`. A BLOCKED entry is in neither set - it waits for a person rather than for a
+and the retention. A BLOCKED entry is in neither set - it waits for a person rather than for a
 clock.
+
+Both stores VanillaBP owns ship an index per question, over the status and that question's
+timestamp, because an aggregate over an unindexed column is a scan growing with everything the
+table ever held - which is what decision 19 forbids a repeated question to do, and what decision
+41 measures. gruelbox indexes `(processed, blocked, nextAttemptTime)` for its own flush, so that
+store adds nothing and shapes its question to fit: two reads naming both flags rather than one
+naming `blocked` alone. Where a table was created by an earlier version the startup names the
+index which is missing and the statement which adds it, because creating an index on a large
+table is a decision with a lock on it.
 
 `vanillabp.outbox.poll-interval` is the cap on that sleep, ten seconds by default, which is the
 rhythm every application had before. It exists for work a node wrote down before it went away,

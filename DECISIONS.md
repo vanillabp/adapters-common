@@ -1186,6 +1186,7 @@ another module's plain id.
 `CollidingProcessIdsAcrossWorkflowModulesTest` holds all of it, both deployment orders included, and
 `StartupQuestionCostTest` holds that the adapter is asked once per pair of workflow modules rather
 than once per process, which is decision 19 applied to a question the core puts to an adapter.
+
 ### 42. A poller sleeps until its store says it owes something
 
 The outbox pollers ran on a fixed delay, ten seconds per store, and every turn was a select plus a
@@ -1197,7 +1198,7 @@ The interval was a guess, and it was wrong in both directions. Too often for an 
 nothing to do, and no help at all for an entry which became due a millisecond after the last turn:
 that one waited the full interval whatever the number was.
 
-So the rhythm is gone. Every store answers one question after each poll - when is the earliest
+So the rhythm is gone. Every store answers the same question after each poll - when is the earliest
 moment I owe something - and the poller sleeps until exactly that moment. An entry due in four
 minutes is dispatched in four minutes rather than on the next tick, and a store which owes nothing
 is left alone. The question is the due-entry select with its time bound dropped, which is what keeps
@@ -1205,8 +1206,27 @@ the two in step: an entry the question does not see is an entry the select would
 A BLOCKED entry is in neither, and that is the point of the predicate. It waits for a person rather
 than for a clock, so a store holding nothing else has nothing to be woken for. The moment the oldest
 dispatched entry may be deleted is part of the answer as well, so the wake-up which deletes is the
-same wake-up which dispatches. gruelbox answers both halves with one question, because it keeps both
-moments in the same column.
+same wake-up which dispatches.
+
+**The question has to be answered from an index, and the shape of the index decides the shape of the
+question.** A repeated question whose cost grows with everything a table ever held is what entry 19
+forbids, and an aggregate over an unindexed column is exactly that: measured on PostgreSQL 16 with
+200000 rows, 11 to 18 ms as a sequential scan against 0.05 ms with an index, and only the first
+number grows. So the two stores VanillaBP owns ship two indexes each, over the status and the
+timestamp of each question - two and not one, because both questions filter the same status and order
+by a different moment, and an index over both moments would serve neither. The same pair serves the
+select which picks the due entries up and the delete which ends the retention, which is why there is
+nothing to add beyond them. gruelbox owns its table and already indexes
+`(processed, blocked, nextAttemptTime)` for its own flush, so nothing is added there and the QUESTION
+is shaped to fit that index instead: two reads naming both flags, one per value of `processed`,
+rather than one read naming only `blocked` which would have scanned the table.
+
+What the indexes cost is on the write path, and an outbox is write-heavy by nature. Two more index
+entries per inserted row, and a maintained entry wherever a status or a timestamp moves, which is the
+claim and the marking as DONE. Against that stands one read per wake-up plus one per poll which would
+otherwise be a scan, and the row is written two to three times during its life anyway. An application
+which knows its own numbers better is free to drop them; nothing in VanillaBP reads an index by
+name.
 
 The notification after a commit stays what it was, the fast path, and it does more than before: it
 pulls a sleep forward to the moment the entry it planned is due. An entry due now is dispatched now,
