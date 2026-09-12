@@ -40,20 +40,6 @@ public interface SampleNoteService<A> {
       SampleNoteDetails.Kind kind);
 
   /**
-   * The same again, in the transaction the caller is already in - what an embedded BPMS
-   * needs, which notifies inside its own.
-   *
-   * @param workflowAggregate The workflow aggregate of the workflow
-   * @param elementId The BPMN element the note is about
-   * @param kind What happened to it
-   * @return The note, or empty where the application has no method for that element
-   */
-  Optional<SampleNoteDetails> recordNoteInTheCallersTransaction(
-      A workflowAggregate,
-      String elementId,
-      SampleNoteDetails.Kind kind);
-
-  /**
    * The BPMS holding the workflow of the given aggregate, asked through VanillaBP's
    * election - an extension addressing the first-priority adapter instead would talk to
    * the wrong BPMS for every workflow a migration has already moved.

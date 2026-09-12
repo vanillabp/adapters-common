@@ -49,7 +49,7 @@ public class SampleNoteServiceFactory implements AggregateServiceFactory<SampleN
           final SampleNoteDetails.Kind kind) {
 
         // a note somebody reads is a read: VanillaBP is told not to save the aggregate
-        return invoke(workflowAggregate, elementId, kind, false, false);
+        return invoke(workflowAggregate, elementId, kind, false);
 
       }
 
@@ -59,17 +59,7 @@ public class SampleNoteServiceFactory implements AggregateServiceFactory<SampleN
           final String elementId,
           final SampleNoteDetails.Kind kind) {
 
-        return invoke(workflowAggregate, elementId, kind, true, false);
-
-      }
-
-      @Override
-      public Optional<SampleNoteDetails> recordNoteInTheCallersTransaction(
-          final Object workflowAggregate,
-          final String elementId,
-          final SampleNoteDetails.Kind kind) {
-
-        return invoke(workflowAggregate, elementId, kind, true, true);
+        return invoke(workflowAggregate, elementId, kind, true);
 
       }
 
@@ -77,8 +67,7 @@ public class SampleNoteServiceFactory implements AggregateServiceFactory<SampleN
           final Object workflowAggregate,
           final String elementId,
           final SampleNoteDetails.Kind kind,
-          final boolean saving,
-          final boolean inTheCallersTransaction) {
+          final boolean saving) {
 
         final var prefilled = new SampleNoteDetails(
             elementId, kind, "%s %s".formatted(configuredGreeting(), elementId));
@@ -90,9 +79,6 @@ public class SampleNoteServiceFactory implements AggregateServiceFactory<SampleN
             .variable("kind", kind.name());
         if (!saving) {
           call.withoutSavingTheWorkflowAggregate();
-        }
-        if (inTheCallersTransaction) {
-          call.inTheCurrentTransaction();
         }
         return context
             .getHandlers()

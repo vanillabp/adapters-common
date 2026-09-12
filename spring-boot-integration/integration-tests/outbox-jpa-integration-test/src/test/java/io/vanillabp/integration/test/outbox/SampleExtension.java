@@ -5,6 +5,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import io.vanillabp.extension.sample.SampleNote;
+import io.vanillabp.extension.sample.SampleNoteDetails;
+import io.vanillabp.integration.extension.spi.handler.ExtensionHandlers;
+import io.vanillabp.integration.extension.spi.handler.HandlerCall;
 import io.vanillabp.integration.spi.PhaseOperation;
 import io.vanillabp.integration.spi.PhaseOperationRegistry;
 import io.vanillabp.integration.spi.PhaseTwoCall;
@@ -31,9 +35,15 @@ public class SampleExtension {
 
   private final PhaseOperationRegistry registry;
 
+  private final ExtensionHandlers handlers;
+
   private final List<PhaseTwoCall> dispatched = new CopyOnWriteArrayList<>();
 
   private volatile int failNextDispatches;
+
+  private volatile int reportAndFailNextDispatches;
+
+  private final java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
 
   /**
    * The operation contributed by this extension: deduplicated per workflow
@@ -62,6 +72,15 @@ public class SampleExtension {
             (
                 call,
                 previouslyAttempted) -> {
+              attempts.incrementAndGet();
+              if (reportAndFailNextDispatches > 0) {
+                reportAndFailNextDispatches--;
+                runTheReportingHandler(
+                    call.workflowModuleId(),
+                    call.bpmnProcessId(),
+                    call.workflowAggregateId());
+                throw new RuntimeException("test dispatch failure behind the handler call");
+              }
               if (failNextDispatches > 0) {
                 failNextDispatches--;
                 throw new RuntimeException("test dispatch failure");
@@ -93,6 +112,45 @@ public class SampleExtension {
 
   }
 
+  /**
+   * Lets VanillaBP run the handler which writes while it reports, the way a real extension
+   * asks for one of its provider methods.
+   *
+   * @param workflowModuleId The workflow module of the workflow
+   * @param bpmnProcessId The BPMN process of the workflow
+   * @param workflowAggregateId The aggregate's ID in serialized form
+   * @return What the handler returned, empty where no handler serves that element
+   */
+  public Optional<Object> runTheReportingHandler(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String workflowAggregateId) {
+
+    return handlers
+        .invoke(
+            HandlerCall
+                .of(SampleNote.class, workflowModuleId, bpmnProcessId)
+                .lookupKeys(List.of(SampleWorkflowService.REPORTED_ELEMENT))
+                .workflowAggregateId(workflowAggregateId)
+                .payload(
+                    new SampleNoteDetails(
+                        SampleWorkflowService.REPORTED_ELEMENT, SampleNoteDetails.Kind.CREATED, "reported"))
+                .build());
+
+  }
+
+  /**
+   * How often the dispatch of this extension's operation was entered, the attempts which
+   * threw included - what tells a failed attempt apart from one which never happened.
+   *
+   * @return The number of attempts since the last reset
+   */
+  public int getAttempts() {
+
+    return attempts.get();
+
+  }
+
   public List<PhaseTwoCall> getDispatched() {
 
     return dispatched;
@@ -103,6 +161,8 @@ public class SampleExtension {
 
     dispatched.clear();
     failNextDispatches = 0;
+    reportAndFailNextDispatches = 0;
+    attempts.set(0);
 
   }
 
@@ -110,6 +170,19 @@ public class SampleExtension {
       final int count) {
 
     failNextDispatches = count;
+
+  }
+
+  /**
+   * Lets the next dispatches run the reporting handler and fail afterwards - the shape of a
+   * notification whose handler wrote something and whose publishing broke right behind it.
+   *
+   * @param count The number of dispatches to fail that way
+   */
+  public void reportAndFailNextDispatches(
+      final int count) {
+
+    reportAndFailNextDispatches = count;
 
   }
 

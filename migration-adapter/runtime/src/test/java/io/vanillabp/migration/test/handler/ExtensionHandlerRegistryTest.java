@@ -280,6 +280,8 @@ public class ExtensionHandlerRegistryTest {
 
     boolean inCurrentUsed = false;
 
+    boolean requireTransactionUsed = false;
+
     @Override
     public <T> T requireNew(
         final Supplier<T> work) {
@@ -294,6 +296,15 @@ public class ExtensionHandlerRegistryTest {
         final Supplier<T> work) {
 
       inCurrentUsed = true;
+      return work.get();
+
+    }
+
+    @Override
+    public <T> T requireTransaction(
+        final Supplier<T> work) {
+
+      requireTransactionUsed = true;
       return work.get();
 
     }
@@ -523,7 +534,8 @@ public class ExtensionHandlerRegistryTest {
     assertEquals("4711/hello/CREATED", returned.orElseThrow());
     // the aggregate was loaded, handed over and saved
     assertEquals("noteOfTheTask", fixture.persistence().aggregates.get("4711").getTouched());
-    assertTrue(fixture.transactionRunner().requireNewUsed);
+    assertTrue(fixture.transactionRunner().requireTransactionUsed);
+    assertFalse(fixture.transactionRunner().requireNewUsed);
 
   }
 
@@ -614,18 +626,20 @@ public class ExtensionHandlerRegistryTest {
   }
 
   @Test
-  @DisplayName("A call which says so runs in the transaction of its caller")
-  public void aCallMayRunInTheCallersTransaction() {
+  @DisplayName("No call of an extension demands a transaction which is already open")
+  public void noCallDemandsARunningTransaction() {
 
     final var fixture = fixture(NotingService.class, NotingService::new, true);
 
     fixture
         .registry()
         .getExtensionHandlers()
-        .invoke(call("TheTask").variable("kind", "CREATED").inTheCurrentTransaction().build());
+        .invoke(call("TheTask").variable("kind", "CREATED").build());
 
-    assertTrue(fixture.transactionRunner().inCurrentUsed);
-    assertFalse(fixture.transactionRunner().requireNewUsed);
+    // the form which insists on a running transaction is for an adapter which knows it
+    // has one; an extension cannot know, so it never gets that form and never fails for
+    // lack of a transaction
+    assertFalse(fixture.transactionRunner().inCurrentUsed);
 
   }
 

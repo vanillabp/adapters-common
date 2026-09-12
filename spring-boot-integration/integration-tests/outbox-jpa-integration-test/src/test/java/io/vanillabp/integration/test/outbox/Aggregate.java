@@ -24,4 +24,10 @@ public class Aggregate {
 
   private String content;
 
+  /**
+   * What a handler of the extension writes while it reports. Separate from the content so
+   * a test can tell the write of the application apart from the write of a handler.
+   */
+  private String reported;
+
 }

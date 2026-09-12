@@ -1287,3 +1287,32 @@ as the act.
 The outbox's own retention delete is NOT gated this way. It rides the poller of entry 42, whose
 wake-up times already contain the moment the oldest dispatched entry may go, so that one is paid for
 by a wake-up which was going to happen anyway.
+
+### 44. A handler VanillaBP calls takes part in the transaction it finds
+
+Entry 11 says that loading an aggregate, running a handler and saving it belong into one unit of
+work, and that VanillaBP opens the right one. It says nothing about what happens when something is
+already open, and for the handlers of an extension the answer was a transaction of VanillaBP's own,
+suspending whatever ran. That turned one unit of work into two wherever an extension was called from
+a transaction: the save of the handler committed while the work around it could still be rolled back,
+and what the handler wrote then stayed behind with nobody to notice.
+
+A handler of an extension now takes part in the transaction running on the thread and gets one of its
+own only where none runs. The seam carries the form rather than a boolean, so all three ways of
+working in a transaction can be ordered, and the form which says "take part, or open one" is what an
+extension gets. The switch an extension could set to ask for the running transaction is gone with it:
+one form serves both cases, and a switch without a second position explains a choice nobody has.
+
+This is not a change against version 1. Version 1 never opened a transaction of its own around a
+handler, neither in `spring-boot-support` nor in the Camunda 7 adapter, and from 1.4.0 the Camunda 8
+adapter saved inside the application's transaction as well. So there is no `UPGRADE.md` entry: the
+rule that defaults behave as version 1 did is kept by this change rather than broken by it.
+
+A task is different and keeps its two forms, because there the adapter knows the answer. An embedded
+engine calls inside its own transaction and owns the commit, and every other adapter calls from a
+worker thread where nothing is open. An adapter stating a fact about its own threads is not the same
+as a caller guessing, which is what the extension seam used to do.
+
+What this does not do is remove the second writer. Two writers still commit one after the other
+inside one transaction, and an application writing from a thread of its own is untouched by any of
+this. It shrinks the window to the length of one transaction instead of the length of a delivery.

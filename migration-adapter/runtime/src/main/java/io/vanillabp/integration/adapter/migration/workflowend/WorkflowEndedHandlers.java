@@ -262,7 +262,8 @@ public class WorkflowEndedHandlers {
     io.vanillabp.integration.adapter.migration.transaction.AggregateWrite
         .inTransaction(
             transactionRunner,
-            context.runInCurrentTransaction(),
+            io.vanillabp.integration.adapter.migration.transaction.TransactionForm
+                .askedForBy(context.runInCurrentTransaction()),
             processService.getWorkflowModuleId(),
             processService.getBpmnProcessId(),
             context.getWorkflowAggregateId(),

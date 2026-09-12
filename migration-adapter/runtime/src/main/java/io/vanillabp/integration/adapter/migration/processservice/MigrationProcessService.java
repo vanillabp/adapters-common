@@ -17,6 +17,7 @@ import io.vanillabp.integration.adapter.migration.config.MigrationAdapterPropert
 import io.vanillabp.integration.adapter.migration.observability.DeliveryMdc;
 import io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics;
 import io.vanillabp.integration.adapter.migration.transaction.AggregateWrite;
+import io.vanillabp.integration.adapter.migration.transaction.TransactionForm;
 import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskHandler;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.PhaseOneRequest;
@@ -756,7 +757,7 @@ public class MigrationProcessService<A> {
     return AggregateWrite
         .inTransaction(
             runner,
-            context.runInCurrentTransaction(),
+            TransactionForm.askedForBy(context.runInCurrentTransaction()),
             workflowModuleId,
             bpmnProcessId,
             context.getWorkflowAggregateId(),
