@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -18,6 +19,13 @@ import lombok.extern.slf4j.Slf4j;
  * It runs once at startup and then {@value #INTERVAL_HOURS}-hourly: records are kept
  * for days, so nothing is gained by looking more often. Deleting is idempotent - the
  * instances of a cluster may run it concurrently.
+ * <p>
+ * An hour which recorded no delivery deletes nothing and therefore asks nothing: the
+ * records of this store only come into being when the application does work, so an
+ * application waiting in a timer grows no garbage and its database sees no statement from
+ * here. What that leaves behind is the last batch before an application went quiet, kept
+ * until it is used again or until it restarts, and keeping a record LONGER is the safe
+ * side of the window it guards (decision 42 in the repository's DECISIONS.md).
  */
 @Slf4j
 public class TaskDeliveryRetentionCleanup {
@@ -32,6 +40,12 @@ public class TaskDeliveryRetentionCleanup {
   private final Duration retention;
 
   private final Runnable cleanup;
+
+  /**
+   * Whether anything was written to this store since the last run. A run without it would
+   * delete what a run before it already deleted.
+   */
+  private final AtomicBoolean recordedSinceTheLastRun = new AtomicBoolean(true);
 
   private ScheduledExecutorService executor;
 
@@ -74,7 +88,7 @@ public class TaskDeliveryRetentionCleanup {
       return thread;
     });
     executor.scheduleWithFixedDelay(
-        this::runCleanup,
+        this::cleanUpWhereSomethingWasRecorded,
         0,
         Duration.ofHours(INTERVAL_HOURS).toMillis(),
         TimeUnit.MILLISECONDS);
@@ -93,13 +107,33 @@ public class TaskDeliveryRetentionCleanup {
 
   }
 
-  private void runCleanup() {
+  /**
+   * Says that a delivery was written down, which is what gives the next hourly run
+   * something to do. Called by the store on every record it writes.
+   */
+  public void aDeliveryWasRecorded() {
 
+    recordedSinceTheLastRun.set(true);
+
+  }
+
+  /**
+   * One run of the cleanup, which deletes nothing and asks nothing where no delivery was
+   * recorded since the previous one. It is what the scheduled thread calls, and it is public
+   * so a test can drive it without waiting out an hour.
+   */
+  public void cleanUpWhereSomethingWasRecorded() {
+
+    if (!recordedSinceTheLastRun.getAndSet(false)) {
+      return;
+    }
     try {
       cleanup.run();
     } catch (final RuntimeException e) {
       // a failing cleanup costs disk space, nothing else - it must not kill the
-      // scheduled task (a scheduleWithFixedDelay stops on an escaping exception)
+      // scheduled task (a scheduleWithFixedDelay stops on an escaping exception). What it
+      // deleted nothing of is tried again in an hour rather than at the next record
+      recordedSinceTheLastRun.set(true);
       log.warn("Could not clean up expired task-delivery records of '{}'", name, e);
     }
 

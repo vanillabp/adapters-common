@@ -208,10 +208,26 @@ public class MongoTaskDeliveryLog implements TaskDeliveryLog, PlatformDefaultSto
 
   }
 
+
+  /**
+   * Tells the retention cleanup that this store was written to, so its next hourly run has
+   * something to delete. Null-safe, because the cleanup is built when the store starts and
+   * a store which never started was never written to either.
+   */
+  private void aDeliveryWasRecorded() {
+
+    final var cleanup = retentionCleanup;
+    if (cleanup != null) {
+      cleanup.aDeliveryWasRecorded();
+    }
+
+  }
+
   @Override
   public void stillOpen(
       final String deliveryKey) {
 
+    aDeliveryWasRecorded();
     touches.remember(deliveryKey);
 
   }
@@ -274,6 +290,9 @@ public class MongoTaskDeliveryLog implements TaskDeliveryLog, PlatformDefaultSto
   public boolean record(
       final TaskDelivery delivery) {
 
+    // what gives the hourly cleanup something to do: a store nobody wrote to has nothing
+    // left to delete which an earlier run did not already delete
+    aDeliveryWasRecorded();
     final var collection = deliveryCollection();
     // the session of the running transaction where MongoDB Panache provides one: the
     // record then commits with the aggregate instead of being written immediately
