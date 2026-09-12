@@ -55,7 +55,8 @@ public final class BpmsInitiatedStartExecution {
       return io.vanillabp.integration.adapter.migration.transaction.AggregateWrite
           .inTransaction(
               transactionRunner,
-              context.runInCurrentTransaction(),
+              io.vanillabp.integration.adapter.migration.transaction.TransactionForm
+                  .askedForBy(context.runInCurrentTransaction()),
               processService.getWorkflowModuleId(),
               processService.getBpmnProcessId(),
               context.getNaturalIdentity(),

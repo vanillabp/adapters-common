@@ -53,13 +53,15 @@ public class TestApplication {
    * Stands in for an extension contributing an operation of its own to the outbox.
    *
    * @param registry The core's operation registry
+   * @param handlers The seam VanillaBP offers an extension to have a handler run
    * @return The sample extension
    */
   @Bean
   public SampleExtension sampleExtension(
-      final io.vanillabp.integration.spi.PhaseOperationRegistry registry) {
+      final io.vanillabp.integration.spi.PhaseOperationRegistry registry,
+      final io.vanillabp.integration.extension.spi.handler.ExtensionHandlers handlers) {
 
-    return new SampleExtension(registry);
+    return new SampleExtension(registry, handlers);
 
   }
 

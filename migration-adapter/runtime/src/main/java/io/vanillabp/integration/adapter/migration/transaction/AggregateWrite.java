@@ -8,9 +8,15 @@ import org.slf4j.LoggerFactory;
 import io.vanillabp.integration.spi.TransactionRunner;
 
 /**
- * Runs work the core wraps in a transaction of its OWN (processing a task, building
- * the aggregate of a workflow the BPMS started, reporting the end of a workflow) and
- * says what a version conflict on saving the workflow aggregate means.
+ * Runs work the core brackets in a transaction (processing a task, building the aggregate
+ * of a workflow the BPMS started, reporting the end of a workflow, answering an
+ * extension) and says what a version conflict on saving the workflow aggregate means.
+ * <p>
+ * Which transaction that is, the caller says with a {@link TransactionForm}. A task
+ * arrives from an adapter which knows whether it calls inside a transaction of its own, so
+ * there the form follows the adapter. A handler of an extension is called from wherever
+ * the extension was called, which nobody can know in advance, so there the form is to join
+ * what runs and to open one only where nothing does.
  * <p>
  * As soon as a BPMN process holds more than one token, two branches write the same
  * workflow aggregate: one in the transaction VanillaBP owns, the other in a
@@ -24,8 +30,9 @@ import io.vanillabp.integration.spi.TransactionRunner;
  * hiding that anything went wrong. So the conflict is named by one guiding message and
  * the exception is propagated UNCHANGED: the adapter maps it to its BPMS' retry
  * semantics (a retry until the attempts are used up, then an incident). Where the work
- * ran in the BPMS' own transaction ({@link TransactionRunner#inCurrent(Supplier)},
- * Camunda 7 embedded) the engine owns the commit and VanillaBP never sees the
+ * ran in a transaction VanillaBP did not open ({@link TransactionForm#CURRENT} for an
+ * embedded Camunda 7, or {@link TransactionForm#CURRENT_OR_NEW} meeting a transaction of
+ * the application) whoever opened it owns the commit, and VanillaBP never sees the
  * conflict at all.
  * <p>
  * Why a version conflict is reported and propagated unchanged instead of being retried is decision
@@ -45,8 +52,7 @@ public final class AggregateWrite {
    * @param <T> The result type
    * @param transactionRunner The platform's transaction runner, which also
    *          classifies the failure (only the platform knows its exceptions)
-   * @param inCurrentTransaction Whether to join the caller's transaction instead of
-   *          starting a new one
+   * @param transactionForm Which of the three ways of working in a transaction is meant
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param workflowAggregateId The workflow aggregate's ID
@@ -57,7 +63,7 @@ public final class AggregateWrite {
    */
   public static <T> T inTransaction(
       final TransactionRunner transactionRunner,
-      final boolean inCurrentTransaction,
+      final TransactionForm transactionForm,
       final String workflowModuleId,
       final String bpmnProcessId,
       final Object workflowAggregateId,
@@ -65,9 +71,7 @@ public final class AggregateWrite {
       final Supplier<T> work) {
 
     try {
-      return inCurrentTransaction
-          ? transactionRunner.inCurrent(work)
-          : transactionRunner.requireNew(work);
+      return transactionForm.runIn(transactionRunner, work);
     } catch (final RuntimeException failure) {
       if (transactionRunner.isConcurrentModification(failure)) {
         log
@@ -80,8 +84,10 @@ public final class AggregateWrite {
                     repeated run repeats everything the method did outside the transaction as well. \
                     Two writers appear as soon as a workflow has more than one token (e.g. a \
                     non-interrupting boundary event) or the application changes the aggregate \
-                    through its own API while the workflow runs. The wiki page 'Workflow \
-                    aggregates' describes the four ways to avoid the collision.""",
+                    through its own API while the workflow runs, and an extension writing while it \
+                    reports is a third way to get there. The wiki page 'Workflow aggregates' names \
+                    every pair of writers and the way out of each of them, in the section 'Two \
+                    writers on one aggregate'.""",
                 capitalized(operation),
                 workflowAggregateId == null
                     ? "not assigned yet"

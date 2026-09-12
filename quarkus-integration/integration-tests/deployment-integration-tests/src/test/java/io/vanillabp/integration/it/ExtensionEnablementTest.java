@@ -165,15 +165,15 @@ public class ExtensionEnablementTest {
   }
 
   @Test
-  @DisplayName("A call which says so runs in the transaction of its caller")
-  public void aCallMayRunInTheCallersTransaction() throws Exception {
+  @DisplayName("A note recorded inside a transaction of the caller is committed with it")
+  public void aRecordedNoteRidesTheCallersTransaction() throws Exception {
 
     final var aggregate = aggregate("7", "in-the-callers-transaction");
 
     userTransaction.begin();
     try {
       noteService
-          .recordNoteInTheCallersTransaction(aggregate, "TheServiceTask", SampleNoteDetails.Kind.CREATED)
+          .recordNoteOf(aggregate, "TheServiceTask", SampleNoteDetails.Kind.CREATED)
           .orElseThrow();
     } finally {
       userTransaction.commit();
@@ -184,16 +184,18 @@ public class ExtensionEnablementTest {
   }
 
   @Test
-  @DisplayName("Without a transaction of the caller, joining one is refused naming the reason")
-  public void joiningANonExistingTransactionIsRefusedGuiding() {
+  @DisplayName("Without a transaction of the caller, VanillaBP opens one instead of refusing")
+  public void aCallWithoutACallersTransactionGetsOne() {
 
     final var aggregate = aggregate("8", "no-transaction-here");
 
-    final var failure = assertThrows(
-        IllegalStateException.class,
-        () -> noteService
-            .recordNoteInTheCallersTransaction(aggregate, "TheServiceTask", SampleNoteDetails.Kind.CREATED));
-    assertTrue(failure.getMessage().contains("no transaction is active"));
+    // the extension asks for nothing about transactions, and an extension called from a
+    // worker thread of a BPMS is the normal case rather than a mistake
+    noteService
+        .recordNoteOf(aggregate, "TheServiceTask", SampleNoteDetails.Kind.CREATED)
+        .orElseThrow();
+
+    assertEquals("noteOfTheServiceTask", persistence.stored("8").getTouched());
 
   }
 

@@ -476,6 +476,7 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
             workflowModuleId,
             bpmnProcessId,
             entry.processService.getWorkflowAggregateClass(),
+            entry.processService.detectsConcurrentModification(),
             elementIds);
 
   }
@@ -504,6 +505,7 @@ public class WorkflowTaskRegistry implements WorkflowTaskWiring, WorkflowTaskInv
             workflowModuleId,
             bpmnProcessId,
             entry.processService.getWorkflowAggregateClass(),
+            entry.processService.detectsConcurrentModification(),
             elementIdsByVersion);
 
   }

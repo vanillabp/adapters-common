@@ -134,18 +134,18 @@ public class ExtensionHandlerTest {
   }
 
   @Test
-  @DisplayName("A call which says so runs in the transaction of its caller")
-  public void aCallMayRunInTheCallersTransaction() {
+  @DisplayName("A note recorded inside a transaction of the caller is rolled back with it")
+  public void aRecordedNoteRidesTheCallersTransaction() {
 
     final var aggregate = startWorkflow("in-the-callers-transaction");
 
-    // rolled back by the caller: an invocation which opened a transaction of its own
-    // would have saved what the method changed either way
+    // the extension is called from a transaction of the application, and an invocation
+    // which opened one of its own would have saved what the method changed either way
     transactionTemplate
         .execute(status -> {
           workflowService
               .getNoteService()
-              .recordNoteInTheCallersTransaction(aggregate, "Activity_1c9pa8d", SampleNoteDetails.Kind.CREATED)
+              .recordNoteOf(aggregate, "Activity_1c9pa8d", SampleNoteDetails.Kind.CREATED)
               .orElseThrow();
           status.setRollbackOnly();
           return null;

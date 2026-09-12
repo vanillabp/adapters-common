@@ -31,6 +31,7 @@ import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.spi.TransactionRunner;
+import io.vanillabp.integration.spi.VersionAttribute;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.WorkflowTask;
 import lombok.Getter;
@@ -332,9 +333,10 @@ public class AggregateWriteConflictTest {
         });
 
     assertTrue(messages.isEmpty(), messages.toString());
-    // the version attribute of a super class counts as well
-    assertTrue(ConcurrentTokenCheck.hasVersionAttribute(VersionedAggregate.class));
-    assertFalse(ConcurrentTokenCheck.hasVersionAttribute(Aggregate.class));
+    // the version attribute of a super class counts as well, and the question the check
+    // asks the persistence is answered from it
+    assertTrue(VersionAttribute.isDeclaredBy(VersionedAggregate.class));
+    assertFalse(VersionAttribute.isDeclaredBy(Aggregate.class));
 
   }
 

@@ -60,6 +60,11 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <groupId>io.vanillabp.springboot</groupId>
+      <artifactId>sample-extension</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>io.vanillabp</groupId>
       <artifactId>bpms-double-spring-boot</artifactId>
       <version>${project.version}</version>

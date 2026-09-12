@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 
 import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
 import io.vanillabp.integration.adapter.migration.transaction.AggregateWrite;
+import io.vanillabp.integration.adapter.migration.transaction.SavingHandlerCheck;
+import io.vanillabp.integration.adapter.migration.transaction.TransactionForm;
 import io.vanillabp.integration.adapter.migration.workflowtask.HandlerMethodsNobodySees;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.extension.spi.handler.ExtensionHandlers;
@@ -69,6 +71,13 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
   private final Map<RegistryKey, List<ExtensionHandlerMethod>> methods = new ConcurrentHashMap<>();
 
   private final Map<RegistryKey, MigrationProcessService<?>> processServices = new ConcurrentHashMap<>();
+
+  /**
+   * The hint about the second writer a handler of an extension is, given while the
+   * handlers are found rather than later: nothing after the boot knows any more whether a
+   * save is allowed.
+   */
+  private final SavingHandlerCheck savingHandlerCheck = new SavingHandlerCheck();
 
   /**
    * What one report about the handler methods nobody sees is about.
@@ -191,6 +200,16 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
             registered.add(method);
           });
     }
+    savingHandlerCheck
+        .reportHandlersWhichMaySave(
+            service.workflowModuleId(),
+            service.bpmnProcessId(),
+            service.workflowAggregateClass(),
+            (service.processService() != null) && service
+                .processService()
+                .detectsConcurrentModification(),
+            contract.getExtensionId(),
+            contract.getAnnotationType());
 
   }
 
@@ -348,7 +367,10 @@ public class ExtensionHandlerRegistry implements ExtensionHandlers {
     final var returned = AggregateWrite
         .inTransaction(
             transactionRunner,
-            call.runsInTheCurrentTransaction(),
+            // an extension calls in from wherever it was called itself, which it cannot
+            // know in advance - so the handler takes part in a transaction which is open
+            // and gets one of its own only where nothing runs
+            TransactionForm.CURRENT_OR_NEW,
             call.getWorkflowModuleId(),
             call.getBpmnProcessId(),
             call.getWorkflowAggregateId(),

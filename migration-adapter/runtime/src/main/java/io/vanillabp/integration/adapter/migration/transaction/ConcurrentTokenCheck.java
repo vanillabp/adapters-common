@@ -1,8 +1,6 @@
 package io.vanillabp.integration.adapter.migration.transaction;
 
-import java.lang.reflect.AnnotatedElement;
 import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -28,10 +26,11 @@ import org.slf4j.LoggerFactory;
  * workflow started before it. The warning names the versions it was drawn from and stays one
  * per BPMN process either way.
  * <p>
- * A version attribute silences the hint - the collision then raises an exception
- * instead of overwriting, which is what {@link AggregateWrite} reports. So does an
- * adapter which cannot read its models (the Process-Engine-API): it reports nothing,
- * and nothing is guessed from the absence.
+ * A persistence which notices the collision silences the hint - it then raises an
+ * exception instead of overwriting, which is what {@link AggregateWrite} reports, and
+ * whether it notices is the persistence's own answer. So does an adapter which cannot read
+ * its models (the Process-Engine-API): it reports nothing, and nothing is guessed from the
+ * absence.
  * <p>
  * Why a model which can produce a second token is only warned about, and only where the aggregate
  * has no version attribute, is decision 14 in the repository's DECISIONS.md.
@@ -39,18 +38,6 @@ import org.slf4j.LoggerFactory;
 public class ConcurrentTokenCheck {
 
   private static final Logger log = LoggerFactory.getLogger(ConcurrentTokenCheck.class);
-
-  /**
-   * The annotations marking the attribute a persistence layer increments per write,
-   * matched by NAME: the core is plain Java and must not gain a dependency on JPA or
-   * Spring Data. Every persistence layer VanillaBP supports calls it
-   * <code>Version</code> (<code>jakarta.persistence</code>,
-   * <code>org.springframework.data.annotation</code>), so the SIMPLE name decides -
-   * an unknown persistence layer following the same convention is recognized as well,
-   * and the outcome of a false positive is a hint not given.
-   */
-  private static final String VERSION_ANNOTATION = "Version";
-
 
   /**
    * The (workflow module, BPMN process) pairs already reported - the hint is a design
@@ -66,12 +53,15 @@ public class ConcurrentTokenCheck {
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param workflowAggregateClass The workflow aggregate's class
+   * @param aggregateNoticesASecondWriter What the aggregate's persistence answers about
+   *          noticing a concurrent change
    * @param elementIds The BPMN element IDs producing the second token
    */
   public void reportConcurrentTokenElements(
       final String workflowModuleId,
       final String bpmnProcessId,
       final Class<?> workflowAggregateClass,
+      final boolean aggregateNoticesASecondWriter,
       final Collection<String> elementIds) {
 
     if ((elementIds == null) || elementIds.isEmpty()) {
@@ -81,6 +71,7 @@ public class ConcurrentTokenCheck {
         workflowModuleId,
         bpmnProcessId,
         workflowAggregateClass,
+        aggregateNoticesASecondWriter,
         "The BPMN process '%s' of workflow module '%s' can hold more than one token at a time (%s)"
             .formatted(bpmnProcessId, workflowModuleId, describe(elementIds)));
 
@@ -99,6 +90,8 @@ public class ConcurrentTokenCheck {
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param workflowAggregateClass The workflow aggregate's class
+   * @param aggregateNoticesASecondWriter What the aggregate's persistence answers about
+   *          noticing a concurrent change
    * @param elementIdsByVersion The elements producing a second token, per version identifier
    *          the BPMS reported
    */
@@ -106,6 +99,7 @@ public class ConcurrentTokenCheck {
       final String workflowModuleId,
       final String bpmnProcessId,
       final Class<?> workflowAggregateClass,
+      final boolean aggregateNoticesASecondWriter,
       final java.util.Map<String, Collection<String>> elementIdsByVersion) {
 
     if ((elementIdsByVersion == null) || elementIdsByVersion.isEmpty()) {
@@ -127,6 +121,7 @@ public class ConcurrentTokenCheck {
         workflowModuleId,
         bpmnProcessId,
         workflowAggregateClass,
+        aggregateNoticesASecondWriter,
         """
             Version(s) %s of BPMN process '%s' of workflow module '%s', which the BPMS still holds \
             and workflows still run on, can hold more than one token at a time (%s)"""
@@ -148,18 +143,21 @@ public class ConcurrentTokenCheck {
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param workflowAggregateClass The workflow aggregate's class
+   * @param aggregateNoticesASecondWriter What the aggregate's persistence answers about
+   *          noticing a concurrent change
    * @param whatCanHoldTwoTokens The clause the warning opens with
    */
   private void report(
       final String workflowModuleId,
       final String bpmnProcessId,
       final Class<?> workflowAggregateClass,
+      final boolean aggregateNoticesASecondWriter,
       final String whatCanHoldTwoTokens) {
 
     if (workflowAggregateClass == null) {
       return;
     }
-    if (hasVersionAttribute(workflowAggregateClass)) {
+    if (aggregateNoticesASecondWriter) {
       return;
     }
     if (!reported.add(workflowModuleId
@@ -196,49 +194,6 @@ public class ConcurrentTokenCheck {
         .distinct()
         .sorted()
         .collect(Collectors.joining("', '", "e.g. '", "'"));
-
-  }
-
-  /**
-   * Whether the given class or one of its super classes declares an attribute the
-   * persistence layer uses for optimistic locking - answered by the NAMES of the
-   * annotations (JPA, Spring Data), so the core stays free of both.
-   *
-   * @param workflowAggregateClass The workflow aggregate's class
-   * @return Whether a version attribute was found
-   */
-  public static boolean hasVersionAttribute(
-      final Class<?> workflowAggregateClass) {
-
-    var type = workflowAggregateClass;
-    while ((type != null) && (type != Object.class)) {
-      final var annotated = java.util.stream.Stream
-          .concat(
-              java.util.Arrays.stream(type.getDeclaredFields()),
-              java.util.Arrays.stream(type.getDeclaredMethods()))
-          .map(AnnotatedElement.class::cast)
-          .toList();
-      if (annotated
-          .stream()
-          .anyMatch(ConcurrentTokenCheck::isVersionAnnotated)) {
-        return true;
-      }
-      type = type.getSuperclass();
-    }
-    return false;
-
-  }
-
-  private static boolean isVersionAnnotated(
-      final AnnotatedElement element) {
-
-    return List
-        .of(element.getAnnotations())
-        .stream()
-        .map(annotation -> annotation
-            .annotationType()
-            .getSimpleName())
-        .anyMatch(VERSION_ANNOTATION::equals);
 
   }
 

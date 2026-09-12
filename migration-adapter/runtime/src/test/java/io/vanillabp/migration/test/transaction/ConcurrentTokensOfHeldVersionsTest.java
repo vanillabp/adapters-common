@@ -366,6 +366,11 @@ public class ConcurrentTokensOfHeldVersionsTest {
     org.mockito.Mockito
         .when(processService.getWorkflowAggregateClass())
         .thenReturn((Class) workflowAggregateClass);
+    // the check asks the persistence of the aggregate, not the class - a real process
+    // service answers that from its AggregatePersistenceAware
+    org.mockito.Mockito
+        .when(processService.detectsConcurrentModification())
+        .thenReturn(io.vanillabp.integration.spi.VersionAttribute.isDeclaredBy(workflowAggregateClass));
     return processService;
 
   }
