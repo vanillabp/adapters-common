@@ -124,6 +124,45 @@ public class GruelboxPhaseTwoOutbox implements PhaseTwoOutbox {
 
   }
 
+  /**
+   * When gruelbox' next flush has something to do, which is what its dispatcher sleeps
+   * until.
+   * <p>
+   * One question answers both halves of a flush, because gruelbox keeps both in the same
+   * column: an entry waiting for its dispatch carries the moment of its next attempt in
+   * <code>nextAttemptTime</code>, and an entry which was dispatched carries the moment its
+   * retention runs out there. A BLOCKED entry is left out, and that is the point of the
+   * predicate: it waits for a person rather than for a clock, so a store which holds
+   * nothing else has nothing to be woken for.
+   *
+   * @return The moment of the earliest entry, or <code>null</code> where nothing is owed -
+   *         which is the answer a store without a data source gives as well, leaving its
+   *         poller on the configured cap
+   */
+  public java.time.Instant earliestDueAt() {
+
+    if ((dataSource == null) || (tableName == null)) {
+      return null;
+    }
+    final var selectEarliest = "SELECT MIN(nextAttemptTime) FROM %s WHERE blocked = ?".formatted(tableName);
+    try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(selectEarliest)) {
+      statement.setBoolean(1, false);
+      try (var resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        final var earliest = resultSet.getTimestamp(1);
+        return earliest == null ? null : earliest.toInstant();
+      }
+    } catch (final java.sql.SQLException e) {
+      // the flush which follows reports the same problem with its own message, and a
+      // poller which stops asking is worse than one which asks at the cap
+      log.debug("Could not read the next attempt time of gruelbox' outbox table '{}'", tableName, e);
+      return null;
+    }
+
+  }
+
   @Override
   public boolean schedule(
       final PhaseTwoCall call) {

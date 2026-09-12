@@ -1,24 +1,22 @@
 package io.vanillabp.integration.outbox.mongo;
 
 import java.time.Instant;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 
 import io.vanillabp.integration.adapter.migration.config.PhaseTwoOutboxProperties;
+import io.vanillabp.integration.adapter.migration.outbox.DueEntryPoller;
 import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoRouter;
 import io.vanillabp.integration.spi.PhaseTwoCall;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -26,9 +24,11 @@ import lombok.extern.slf4j.Slf4j;
  * through the core's {@link PhaseTwoRouter}:
  * <ul>
  * <li>right after a commit (triggered by {@link MongoPhaseTwoOutbox}) and</li>
- * <li>by a fixed-delay poller (crash recovery and retries, poll interval configured
- * by <code>vanillabp.outbox.poll-interval</code>) started on
- * {@link ApplicationReadyEvent}.</li>
+ * <li>by a poller (crash recovery and retries) started on
+ * {@link ApplicationReadyEvent}, which sleeps until the earliest entry it still owes
+ * something to is due rather than polling on a rhythm - bounded by
+ * <code>vanillabp.outbox.poll-interval</code> for work another node wrote down before it
+ * died (see {@link DueEntryPoller}).</li>
  * </ul>
  * Due entries (status {@link PhaseTwoOutboxEntry#STATUS_OPEN}) are claimed atomically
  * (find-and-modify incrementing the number of attempts and leasing the entry for one
@@ -50,7 +50,6 @@ import lombok.extern.slf4j.Slf4j;
  * an application's own scheduling setup (e.g. <code>&#64;EnableScheduling</code>)
  * stays unaffected.
  */
-@RequiredArgsConstructor
 @Slf4j
 public class MongoPhaseTwoOutboxDispatcher {
 
@@ -72,10 +71,98 @@ public class MongoPhaseTwoOutboxDispatcher {
    */
   private final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics;
 
-  private ScheduledExecutorService poller;
+  private final DueEntryPoller poller;
 
   /**
-   * Starts the fixed-delay poller. The first run is executed immediately, dispatching
+   * @param mongoTemplate The template writing and reading the entries
+   * @param phaseTwoRouter Provider of the router dispatched to
+   * @param properties The bound <code>vanillabp.outbox</code> section
+   * @param collection The collection polled
+   * @param metrics Provider of what a blocked entry is counted into
+   */
+  public MongoPhaseTwoOutboxDispatcher(
+      final MongoTemplate mongoTemplate,
+      final ObjectProvider<PhaseTwoRouter> phaseTwoRouter,
+      final PhaseTwoOutboxProperties properties,
+      final String collection,
+      final ObjectProvider<io.vanillabp.integration.adapter.migration.observability.VanillaBpMetrics> metrics) {
+
+    this.mongoTemplate = mongoTemplate;
+    this.phaseTwoRouter = phaseTwoRouter;
+    this.properties = properties;
+    this.collection = collection;
+    this.metrics = metrics;
+    this.poller = new DueEntryPoller(
+        "vanillabp-outbox", properties.getPollInterval(), this::poll, this::earliestDueAt);
+
+  }
+
+  /**
+   * When this store owes something: the due time of the earliest entry waiting for its
+   * dispatch, or the moment the oldest dispatched entry may be deleted, whichever comes
+   * first. A BLOCKED entry is in neither set - it waits for a person rather than for a
+   * clock, so it must not keep the poller awake.
+   *
+   * @return The earliest of the two moments, or <code>null</code> where the collection
+   *         holds neither
+   */
+  private Instant earliestDueAt() {
+
+    final var nextAttempt = earliest(
+        Query
+            .query(Criteria
+                .where("status")
+                .is(PhaseTwoOutboxEntry.STATUS_OPEN)
+                .and("attempts")
+                .lt(properties.getBlockAfterAttempts())),
+        "nextAttemptAt");
+    final var oldestDone = earliest(
+        Query
+            .query(Criteria
+                .where("status")
+                .is(PhaseTwoOutboxEntry.STATUS_DONE)),
+        "doneAt");
+    final var retentionRunsOut = oldestDone == null
+        ? null
+        : oldestDone.plus(properties.getRetention());
+    if (nextAttempt == null) {
+      return retentionRunsOut;
+    }
+    if (retentionRunsOut == null) {
+      return nextAttempt;
+    }
+    return nextAttempt.isBefore(retentionRunsOut) ? nextAttempt : retentionRunsOut;
+
+  }
+
+  /**
+   * The smallest value of one field among the documents a query matches, read as one
+   * document rather than as an aggregation, so the sort is served by an index where the
+   * application created one.
+   *
+   * @param query What to look at
+   * @param field The field to order by and to read
+   * @return The value or <code>null</code> where nothing matches
+   */
+  private Instant earliest(
+      final Query query,
+      final String field) {
+
+    query
+        .with(Sort.by(Sort.Direction.ASC, field))
+        .limit(1)
+        .fields()
+        .include(field);
+    final var entry = mongoTemplate.findOne(query, PhaseTwoOutboxEntry.class, collection);
+    if (entry == null) {
+      return null;
+    }
+    return "doneAt".equals(field) ? entry.getDoneAt() : entry.getNextAttemptAt();
+
+  }
+
+  /**
+   * Starts the poller. The first run is executed immediately, dispatching
    * committed-but-unprocessed entries of a previously crashed instance. The listener
    * order guarantees that workflow processing started BEFORE any recovered entry is
    * dispatched (see
@@ -85,38 +172,24 @@ public class MongoPhaseTwoOutboxDispatcher {
   @EventListener(ApplicationReadyEvent.class)
   public void startPolling() {
 
-    poller = Executors.newSingleThreadScheduledExecutor(runnable -> {
-      final var thread = new Thread(runnable, "vanillabp-outbox");
-      thread.setDaemon(true);
-      return thread;
-    });
-    poller.scheduleWithFixedDelay(
-        this::poll,
-        0,
-        properties.getPollInterval().toMillis(),
-        TimeUnit.MILLISECONDS);
+    poller.start();
 
   }
 
   @PreDestroy
   public void stopPolling() {
 
-    if (poller != null) {
-      poller.shutdown();
-      poller = null;
-    }
+    poller.stop();
 
   }
 
   /**
-   * Runs a single poll asynchronously (used right after a commit).
+   * Pulls the next poll forward to now (used right after a commit, where the entry just
+   * written wants to go out at once).
    */
   public void triggerPoll() {
 
-    final var executor = poller;
-    if (executor != null) {
-      executor.execute(this::poll);
-    }
+    poller.somethingIsDueAt(Instant.now());
 
   }
 

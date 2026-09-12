@@ -22,12 +22,30 @@ import lombok.experimental.SuperBuilder;
 public class PhaseTwoOutboxProperties {
 
   /**
-   * The fixed delay between two background polls for committed-but-unprocessed outbox
-   * entries. Polling is required for crash recovery and retries; right after a commit
-   * the entry is dispatched immediately (independently of this delay).
+   * The longest a store's background poller sleeps while it owes nothing.
+   * <p>
+   * It is a cap and not a rhythm. A poller asks its store when the earliest entry which
+   * is still owed is due and sleeps until exactly that moment, so an entry is dispatched
+   * at its due time however long this is, and an application waiting in a timer issues no
+   * database command at all. What the cap covers is the one thing a sleeping node cannot
+   * see: work a node wrote down and then DIED before dispatching, which nobody is waiting
+   * for a notification about (decision 41 in the repository's DECISIONS.md). Raising it is
+   * how an application buys the saving; lowering it back to seconds gives the saving away
+   * and buys nothing else.
+   * <p>
+   * Ten seconds by default, which is the rhythm every VanillaBP application polled at
+   * before the sleeping was there, so an application which sets nothing keeps the timing
+   * it had.
    */
   @Builder.Default
-  private Duration pollInterval = Duration.ofSeconds(10);
+  private Duration pollInterval = DEFAULT_POLL_INTERVAL;
+
+  /**
+   * The default of {@link #pollInterval}, which the startup message about what still keeps
+   * a database awake compares against: a value moved away from it is an application asking
+   * for the saving, and that is the moment to say what remains.
+   */
+  public static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(10);
 
   /**
    * The distance to the FIRST retry after a failed dispatch. Every further attempt

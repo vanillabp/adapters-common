@@ -6,9 +6,6 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import javax.sql.DataSource;
 
@@ -18,6 +15,7 @@ import io.quarkus.runtime.StartupEvent;
 import io.smallrye.config.SmallRyeConfig;
 import io.vanillabp.integration.adapter.migration.config.PhaseTwoOutboxProperties;
 import io.vanillabp.integration.adapter.migration.jdbc.JdbcSchema;
+import io.vanillabp.integration.adapter.migration.outbox.DueEntryPoller;
 import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoRouter;
 import io.vanillabp.integration.runtime.config.QuarkusMigrationAdapterProperties;
 import io.vanillabp.integration.runtime.config.QuarkusMigrationAdapterPropertiesMapper;
@@ -37,9 +35,10 @@ import lombok.extern.slf4j.Slf4j;
  * (see {@link JdbcPhaseTwoOutbox}) through the core's {@link PhaseTwoRouter}:
  * <ul>
  * <li>right after a commit (triggered by {@link JdbcPhaseTwoOutbox}) and</li>
- * <li>by a fixed-delay poller (crash recovery and retries, poll interval configured
- * by <code>vanillabp.outbox.poll-interval</code>) started on
- * {@link StartupEvent}.</li>
+ * <li>by a poller (crash recovery and retries) started on {@link StartupEvent}, which
+ * sleeps until the earliest entry this store still owes something to is due rather than
+ * polling on a rhythm - bounded by <code>vanillabp.outbox.poll-interval</code> for work
+ * another node wrote down before it died (see {@link DueEntryPoller}).</li>
  * </ul>
  * The poller uses a plain scheduled executor, so the <code>quarkus-scheduler</code>
  * extension is not required. Due entries (status {@link #STATUS_OPEN}) are claimed
@@ -90,6 +89,27 @@ public class JdbcPhaseTwoOutboxDispatcher {
       FROM %s \
       WHERE STATUS = '%s' AND NEXT_ATTEMPT_AT <= ? AND ATTEMPTS < ?""";
 
+  /**
+   * When the earliest entry waiting for its dispatch wants to be looked at. It is the
+   * select above with its time bound dropped, which is what keeps the two in step: an
+   * entry this does not see is an entry that one would not pick up either, and a BLOCKED
+   * entry is in neither, because it waits for a person rather than for a clock.
+   */
+  private static final String SELECT_NEXT_ATTEMPT = """
+      SELECT MIN(NEXT_ATTEMPT_AT) \
+      FROM %s \
+      WHERE STATUS = '%s' AND ATTEMPTS < ?""";
+
+  /**
+   * When the oldest dispatched entry may be deleted, asked as the moment it was dispatched
+   * so the retention can be added to it in Java rather than in each database's own date
+   * arithmetic.
+   */
+  private static final String SELECT_OLDEST_DONE = """
+      SELECT MIN(DONE_AT) \
+      FROM %s \
+      WHERE STATUS = '%s'""";
+
   private static final String CLAIM_ENTRY = """
       UPDATE %s \
       SET ATTEMPTS = ATTEMPTS + 1, NEXT_ATTEMPT_AT = ? \
@@ -135,6 +155,10 @@ public class JdbcPhaseTwoOutboxDispatcher {
   private String tableName;
 
   private String selectDueEntries;
+
+  private String selectNextAttempt;
+
+  private String selectOldestDone;
 
   private String claimEntry;
 
@@ -184,7 +208,7 @@ public class JdbcPhaseTwoOutboxDispatcher {
 
   private volatile PhaseTwoOutboxProperties properties;
 
-  private ScheduledExecutorService executor;
+  private volatile DueEntryPoller poller;
 
   /**
    * The outbox configuration (<code>vanillabp.outbox.*</code>), loaded lazily so
@@ -234,6 +258,8 @@ public class JdbcPhaseTwoOutboxDispatcher {
 
     tableName = JdbcPhaseTwoOutbox.tableName(properties);
     selectDueEntries = SELECT_DUE_ENTRIES.formatted(tableName, STATUS_OPEN);
+    selectNextAttempt = SELECT_NEXT_ATTEMPT.formatted(tableName, STATUS_OPEN);
+    selectOldestDone = SELECT_OLDEST_DONE.formatted(tableName, STATUS_DONE);
     claimEntry = CLAIM_ENTRY.formatted(tableName);
     markEntryDone = MARK_ENTRY_DONE.formatted(tableName, STATUS_DONE);
     markEntryBlocked = MARK_ENTRY_BLOCKED.formatted(tableName, STATUS_BLOCKED);
@@ -249,36 +275,84 @@ public class JdbcPhaseTwoOutboxDispatcher {
       validateTableExists();
     }
 
-    executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-      final var thread = new Thread(runnable, "vanillabp-outbox");
-      thread.setDaemon(true);
-      return thread;
-    });
-    executor.scheduleWithFixedDelay(
-        this::poll,
-        0,
-        properties.getPollInterval().toMillis(),
-        TimeUnit.MILLISECONDS);
+    poller = new DueEntryPoller(
+        "vanillabp-outbox", properties.getPollInterval(), this::poll, this::earliestDueAt);
+    poller.start();
 
   }
 
   @PreDestroy
   void shutdown() {
 
-    if (executor != null) {
-      executor.shutdownNow();
-      executor = null;
+    if (poller != null) {
+      poller.stop();
+      poller = null;
     }
 
   }
 
   /**
-   * Runs a single poll asynchronously (used right after a commit).
+   * Pulls the next poll forward to now (used right after a commit, where the entry just
+   * written wants to go out at once).
    */
   public void triggerPoll() {
 
-    if (executor != null) {
-      executor.execute(this::poll);
+    final var running = poller;
+    if (running != null) {
+      running.somethingIsDueAt(Instant.now());
+    }
+
+  }
+
+  /**
+   * When this store owes something: the due time of the earliest entry waiting for its
+   * dispatch, or the moment the oldest dispatched entry may be deleted, whichever comes
+   * first. Two aggregates over one connection, each of which a database can answer from an
+   * index over STATUS and the timestamp.
+   *
+   * @return The earliest of the two moments, or <code>null</code> where the table holds
+   *         neither
+   */
+  private Instant earliestDueAt() {
+
+    try (var connection = dataSource.get().getConnection()) {
+      final var nextAttempt = earliest(connection, selectNextAttempt, properties.getBlockAfterAttempts());
+      final var oldestDone = earliest(connection, selectOldestDone, null);
+      final var retentionRunsOut = oldestDone == null
+          ? null
+          : oldestDone.plus(properties.getRetention());
+      if (nextAttempt == null) {
+        return retentionRunsOut;
+      }
+      if (retentionRunsOut == null) {
+        return nextAttempt;
+      }
+      return nextAttempt.isBefore(retentionRunsOut) ? nextAttempt : retentionRunsOut;
+    } catch (final SQLException e) {
+      // the poll which follows reports the same problem with its own message, and a poller
+      // which stops asking is worse than one which asks at the configured cap
+      log.debug("Could not read when the next phase-two outbox entry of table '{}' is due", tableName, e);
+      return null;
+    }
+
+  }
+
+  private Instant earliest(
+      final Connection connection,
+      final String query,
+      final Integer attemptsBelow) throws SQLException {
+
+    try (var statement = connection.prepareStatement(query)) {
+      if (attemptsBelow != null) {
+        statement.setInt(1, attemptsBelow);
+      }
+      try (var resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        final var earliest = resultSet.getTimestamp(1);
+        return earliest == null ? null : earliest.toInstant();
+      }
     }
 
   }
