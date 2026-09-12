@@ -4,9 +4,6 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import org.bson.Document;
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -16,11 +13,13 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.Updates;
 
 import io.quarkus.runtime.StartupEvent;
 import io.smallrye.config.SmallRyeConfig;
 import io.vanillabp.integration.adapter.migration.config.PhaseTwoOutboxProperties;
+import io.vanillabp.integration.adapter.migration.outbox.DueEntryPoller;
 import io.vanillabp.integration.adapter.migration.processservice.PhaseTwoRouter;
 import io.vanillabp.integration.runtime.config.QuarkusMigrationAdapterProperties;
 import io.vanillabp.integration.runtime.config.QuarkusMigrationAdapterPropertiesMapper;
@@ -40,9 +39,10 @@ import lombok.extern.slf4j.Slf4j;
  * {@link PhaseTwoRouter}:
  * <ul>
  * <li>right after a commit (triggered by {@link MongoPhaseTwoOutbox}) and</li>
- * <li>by a fixed-delay poller (crash recovery and retries, poll interval configured
- * by <code>vanillabp.outbox.poll-interval</code>) started on
- * {@link StartupEvent}.</li>
+ * <li>by a poller (crash recovery and retries) started on {@link StartupEvent}, which
+ * sleeps until the earliest entry this store still owes something to is due rather than
+ * polling on a rhythm - bounded by <code>vanillabp.outbox.poll-interval</code> for work
+ * another node wrote down before it died (see {@link DueEntryPoller}).</li>
  * </ul>
  * Due entries (status {@link MongoPhaseTwoOutbox#STATUS_OPEN}) are claimed
  * atomically (<code>findOneAndUpdate</code> incrementing the number of attempts and
@@ -111,7 +111,7 @@ public class MongoPhaseTwoOutboxDispatcher {
 
   }
 
-  private ScheduledExecutorService executor;
+  private volatile DueEntryPoller poller;
 
   /**
    * Creates the unique index (unless disabled) and starts the fixed-delay poller.
@@ -142,28 +142,27 @@ public class MongoPhaseTwoOutboxDispatcher {
       outboxCollection().createIndex(
           Indexes.ascending("dedupKey"),
           new IndexOptions().unique(true));
+      // what this dispatcher asks on every wake-up, and two indexes rather than one: both questions
+      // filter the same status and order by a different moment, so an index over both moments would
+      // serve neither. Without them each question reads the whole collection, which costs more the
+      // longer the application has been running
+      outboxCollection().createIndex(Indexes.ascending("status", "nextAttemptAt"));
+      outboxCollection().createIndex(Indexes.ascending("status", "doneAt"));
       dropLegacyIdempotencyKeyIndex();
     }
 
-    executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-      final var thread = new Thread(runnable, "vanillabp-outbox");
-      thread.setDaemon(true);
-      return thread;
-    });
-    executor.scheduleWithFixedDelay(
-        this::poll,
-        0,
-        properties.getPollInterval().toMillis(),
-        TimeUnit.MILLISECONDS);
+    poller = new DueEntryPoller(
+        "vanillabp-outbox", properties.getPollInterval(), this::poll, this::earliestDueAt);
+    poller.start();
 
   }
 
   @PreDestroy
   void shutdown() {
 
-    if (executor != null) {
-      executor.shutdownNow();
-      executor = null;
+    if (poller != null) {
+      poller.stop();
+      poller = null;
     }
 
   }
@@ -188,13 +187,86 @@ public class MongoPhaseTwoOutboxDispatcher {
   }
 
   /**
-   * Runs a single poll asynchronously (used right after a commit).
+   * Pulls the next poll forward to now (used right after a commit, where the entry just
+   * written wants to go out at once).
    */
   public void triggerPoll() {
 
-    if (executor != null) {
-      executor.execute(this::poll);
+    final var running = poller;
+    if (running != null) {
+      running.somethingIsDueAt(Instant.now());
     }
+
+  }
+
+  /**
+   * When this store owes something: the due time of the earliest entry waiting for its
+   * dispatch, or the moment the oldest dispatched entry may be deleted, whichever comes
+   * first. A BLOCKED entry is in neither set - it waits for a person rather than for a
+   * clock, so it must not keep the poller awake.
+   *
+   * @return The earliest of the two moments, or <code>null</code> where the collection
+   *         holds neither
+   */
+  private Instant earliestDueAt() {
+
+    try {
+      final var collection = outboxCollection();
+      final var nextAttempt = earliest(
+          collection,
+          Filters.and(
+              Filters.eq("status", MongoPhaseTwoOutbox.STATUS_OPEN),
+              Filters.lt("attempts", properties.getBlockAfterAttempts())),
+          "nextAttemptAt");
+      final var oldestDone = earliest(
+          collection,
+          Filters.eq("status", MongoPhaseTwoOutbox.STATUS_DONE),
+          "doneAt");
+      final var retentionRunsOut = oldestDone == null
+          ? null
+          : oldestDone.plus(properties.getRetention());
+      if (nextAttempt == null) {
+        return retentionRunsOut;
+      }
+      if (retentionRunsOut == null) {
+        return nextAttempt;
+      }
+      return nextAttempt.isBefore(retentionRunsOut) ? nextAttempt : retentionRunsOut;
+    } catch (final RuntimeException e) {
+      // the poll which follows reports the same problem with its own message, and a poller
+      // which stops asking is worse than one which asks at the configured cap
+      log.debug("Could not read when the next phase-two outbox entry is due", e);
+      return null;
+    }
+
+  }
+
+  /**
+   * The smallest value of one field among the documents a filter matches, read as one
+   * document rather than as an aggregation, so the sort is served by the index this store creates
+   * over the status and that field.
+   *
+   * @param collection The outbox collection
+   * @param filter What to look at
+   * @param field The field to order by and to read
+   * @return The value or <code>null</code> where nothing matches
+   */
+  private Instant earliest(
+      final MongoCollection<Document> collection,
+      final org.bson.conversions.Bson filter,
+      final String field) {
+
+    final var entry = collection
+        .find(filter)
+        .sort(Sorts.ascending(field))
+        .projection(new Document(field, 1))
+        .limit(1)
+        .first();
+    if (entry == null) {
+      return null;
+    }
+    final var value = entry.getDate(field);
+    return value == null ? null : value.toInstant();
 
   }
 

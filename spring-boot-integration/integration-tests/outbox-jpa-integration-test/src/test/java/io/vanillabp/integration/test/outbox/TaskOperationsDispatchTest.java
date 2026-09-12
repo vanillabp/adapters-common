@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrowsExactly;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import javax.sql.DataSource;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,19 @@ public class TaskOperationsDispatchTest {
   @Autowired
   private AggregateRepository repository;
 
+  @Autowired
+  private DataSource dataSource;
+
+  /**
+   * What gruelbox still owes for one aggregate. Its table names no aggregate of its own, but
+   * the idempotency key of a workflow start ends with the aggregate id, which is enough to
+   * tell this test's entries from those the classes before it left in the database they all
+   * share. A BLOCKED entry is left out for the same reason: it waits for a person, so a test
+   * which waited for it would wait for ever.
+   */
+  private static final String COUNT_ENTRIES_NOT_DISPATCHED = "SELECT COUNT(*) FROM TXNO_OUTBOX "
+      + "WHERE processed = false AND blocked = false AND uniqueRequestId LIKE ?";
+
   @BeforeEach
   public void reset() {
 
@@ -63,8 +79,31 @@ public class TaskOperationsDispatchTest {
 
   }
 
+  @AfterEach
+  public void forgetWhatThisTestSteered() {
+
+    // a window one test opened is closed by that test rather than by the next one: a test
+    // which fails in between leaves it behind, and every workflow probe of whoever comes
+    // next then reports "not visible yet" for nothing
+    awareness.alwaysVisible();
+
+  }
+
+  /**
+   * A workflow whose start is THROUGH: the outbox entry of its phase two is dispatched and
+   * gruelbox marked it processed.
+   * <p>
+   * Waiting for the listener instead would answer a different question. The listener runs
+   * INSIDE the dispatch, one write before the store marks the entry, so it says that the
+   * adapter was called and not that the entry is finished. Everything the tests below do
+   * next - steering what the adapter answers, planning a second operation on the same
+   * workflow - reads as if the start were over, and only the store knows whether it is.
+   *
+   * @param content What the aggregate carries, one value per test
+   * @return The attached aggregate
+   */
   private Aggregate startedAggregate(
-      final String content) {
+      final String content) throws Exception {
 
     final var attached = transactionTemplate.execute(status -> {
       final var aggregate = new Aggregate();
@@ -72,7 +111,41 @@ public class TaskOperationsDispatchTest {
       return processService.startWorkflow(aggregate);
     });
     assertNotNull(attached);
+    awaitNothingLeftUndone(attached);
     return attached;
+
+  }
+
+  /**
+   * Waits until the store has dispatched everything it owes for this aggregate.
+   *
+   * @param aggregate The aggregate whose entries have to be through
+   */
+  private void awaitNothingLeftUndone(
+      final Aggregate aggregate) throws Exception {
+
+    final var deadline = System.currentTimeMillis() + 30000;
+    while (countEntriesNotDispatched(aggregate) > 0) {
+      assertTrue(
+          System.currentTimeMillis() < deadline,
+          "an entry of aggregate '%s' was never dispatched".formatted(aggregate.getId()));
+      Thread.sleep(50);
+    }
+
+  }
+
+  private long countEntriesNotDispatched(
+      final Aggregate aggregate) throws Exception {
+
+    try (var connection = dataSource.getConnection(); var statement = connection
+        .prepareStatement(COUNT_ENTRIES_NOT_DISPATCHED)) {
+      statement.setString(1, "%|"
+          + aggregate.getId());
+      try (var resultSet = statement.executeQuery()) {
+        resultSet.next();
+        return resultSet.getLong(1);
+      }
+    }
 
   }
 
@@ -144,7 +217,7 @@ public class TaskOperationsDispatchTest {
 
   @Test
   @DisplayName("An unknown user task raises the guiding TaskNotFoundException")
-  public void unknownUserTaskRaisesGuidingException() {
+  public void unknownUserTaskRaisesGuidingException() throws Exception {
 
     final var aggregate = startedAggregate("unknown-user-task");
 
@@ -278,10 +351,6 @@ public class TaskOperationsDispatchTest {
         .getCorrelatedMessages()
         .contains(aggregate.getId()
             + ":PaymentReceived:null"));
-    // the window is state of a bean this module's test classes share - leaving it
-    // behind would make every workflow probe of the next class wait for nothing
-    awareness.alwaysVisible();
-
   }
 
   @Test
@@ -346,7 +415,7 @@ public class TaskOperationsDispatchTest {
 
   @Test
   @DisplayName("No adapter knows the task - the guiding TaskNotFoundException is raised")
-  public void unknownTaskRaisesGuidingException() {
+  public void unknownTaskRaisesGuidingException() throws Exception {
 
     final var aggregate = startedAggregate("unknown-task");
     // awareness stays UNKNOWN_TO_BPMS

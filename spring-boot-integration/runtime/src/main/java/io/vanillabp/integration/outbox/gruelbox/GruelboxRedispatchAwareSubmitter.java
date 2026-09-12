@@ -31,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
  * fix. So nothing is submitted while the gate is closed, which gruelbox treats
  * like an executor refusing the work: the entry stays committed and due, and the
  * first {@link com.gruelbox.transactionoutbox.TransactionOutbox#flush()} carries
- * it. Such an entry costs <code>vanillabp.outbox.poll-interval</code> at worst,
+ * it. Such an entry waits for the moment the dispatcher starts polling, which is
  * once per application start, and it reaches the dispatch bean as a repetition,
  * because gruelbox stamps the attempt time of every entry a flush picks up.
  * <p>

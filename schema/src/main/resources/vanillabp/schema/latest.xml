@@ -143,4 +143,40 @@
     </modifySql>
   </changeSet>
 
+  <changeSet author="VanillaBP" id="vanillabp-phase-two-outbox-indexes-2.0.0" labels="2.0.0">
+    <comment>
+      What the dispatcher of this table asks on every wake-up. Two indexes and not one, because the
+      two questions filter the same STATUS and order by different columns: an entry waiting for its
+      dispatch is found by NEXT_ATTEMPT_AT, an entry waiting to be deleted by DONE_AT, and one index
+      over both timestamps would serve neither. Measured on PostgreSQL 16 with 200000 rows, the
+      aggregate asking when the next entry is due took 11 to 18 ms as a sequential scan and 0.05 ms
+      with the first of these - and the scan grows with the table while the index does not, which is
+      what decision 19 of the repository forbids a repeated question to do. The same columns serve
+      the selects which pick the due entries up and the delete which ends the retention. A
+      changeset of its own rather than indexes added to the one above, because that one was applied
+      already.
+    </comment>
+    <createIndex tableName="${vanillabp.outbox.table}" indexName="${vanillabp.outbox.table}_DUE">
+      <column name="STATUS" />
+      <column name="NEXT_ATTEMPT_AT" />
+    </createIndex>
+    <createIndex tableName="${vanillabp.outbox.table}" indexName="${vanillabp.outbox.table}_AGE">
+      <column name="STATUS" />
+      <column name="DONE_AT" />
+    </createIndex>
+  </changeSet>
+
+  <changeSet author="VanillaBP" id="vanillabp-task-delivery-age-2.0.0" labels="2.0.0">
+    <comment>
+      The index the retention of this table deletes by, which the runtime creates with the table and
+      this changelog did not. An application applying the changelog therefore had the table the
+      runtime builds minus one index, and the hourly delete was a scan growing with everything ever
+      recorded. What the period has to cover is the same either way (see decision 24 of the
+      repository); what differs is what the delete costs.
+    </comment>
+    <createIndex tableName="${vanillabp.delivery.table}" indexName="${vanillabp.delivery.table}_AGE">
+      <column name="LAST_SEEN_AT" />
+    </createIndex>
+  </changeSet>
+
 </databaseChangeLog>

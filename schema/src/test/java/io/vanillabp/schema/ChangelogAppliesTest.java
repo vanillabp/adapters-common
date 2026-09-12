@@ -111,6 +111,61 @@ public class ChangelogAppliesTest {
 
   }
 
+  /**
+   * The indexes of a table, each with the columns it spans in their order.
+   */
+  private static Map<String, java.util.List<String>> indexesOf(
+      final Connection connection,
+      final String tableName) throws Exception {
+
+    final var indexes = new LinkedHashMap<String, java.util.List<String>>();
+    try (var resultSet = connection.getMetaData().getIndexInfo(null, null, tableName, false, true)) {
+      while (resultSet.next()) {
+        final var name = resultSet.getString("INDEX_NAME");
+        if (name == null) {
+          continue;
+        }
+        indexes
+            .computeIfAbsent(name.toUpperCase(), index -> new java.util.ArrayList<>())
+            .add(resultSet.getString("COLUMN_NAME"));
+      }
+    }
+    return indexes;
+
+  }
+
+  @Test
+  @DisplayName("The changelog creates the indexes the stores read by, the way the runtime does")
+  public void theIndexesOfBothTablesAreCreated() throws Exception {
+
+    try (var connection = applyTo("changelog-indexes", Map.of())) {
+      final var outbox = indexesOf(connection, "VANILLABP_PHASE_TWO_OUTBOX");
+      assertEquals(
+          java.util.List.of("STATUS", "NEXT_ATTEMPT_AT"),
+          outbox.get("VANILLABP_PHASE_TWO_OUTBOX_DUE"),
+          "the poller asks when its next entry is due on every wake-up: "
+              + outbox);
+      assertEquals(
+          java.util.List.of("STATUS", "DONE_AT"),
+          outbox.get("VANILLABP_PHASE_TWO_OUTBOX_AGE"),
+          "the retention deletes by the moment an entry was dispatched: "
+              + outbox);
+
+      final var delivery = indexesOf(connection, "VANILLABP_TASK_DELIVERY");
+      assertEquals(
+          java.util.List.of("TASK_ID"),
+          delivery.get("VANILLABP_TASK_DELIVERY_TASK"),
+          "a task operation reads the record of the task it names: "
+              + delivery);
+      assertEquals(
+          java.util.List.of("LAST_SEEN_AT"),
+          delivery.get("VANILLABP_TASK_DELIVERY_AGE"),
+          "the retention deletes by the moment a delivery was last seen: "
+              + delivery);
+    }
+
+  }
+
   @Test
   @DisplayName("A duplicate dedup key is refused - that is what makes a duplicate schedule a no-op")
   public void theDedupKeyIsUnique() throws Exception {

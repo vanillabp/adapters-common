@@ -122,6 +122,9 @@ public class MongoTaskDeliveryLog implements TaskDeliveryLog {
       return false;
     }
 
+    // what gives the hourly cleanup something to do: a store nobody wrote to has nothing
+    // left to delete which an earlier run did not already delete
+    retentionCleanup.aDeliveryWasRecorded();
     try {
       // the record was seen the moment it was written; a redelivery of a task which stays
       // open moves lastSeenAt and leaves recordedAt where it is
@@ -390,6 +393,7 @@ public class MongoTaskDeliveryLog implements TaskDeliveryLog {
   public void stillOpen(
       final String deliveryKey) {
 
+    retentionCleanup.aDeliveryWasRecorded();
     touches.remember(deliveryKey);
 
   }

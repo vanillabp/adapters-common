@@ -129,7 +129,8 @@ public class GruelboxHoldsEntriesBackUntilDispatchingStartedTest {
    */
   private GruelboxPhaseTwoOutboxDispatcher aDispatcher() {
 
-    dispatcher = new GruelboxPhaseTwoOutboxDispatcher(transactionOutbox, properties.getOutbox(), submitter);
+    dispatcher = new GruelboxPhaseTwoOutboxDispatcher(
+        transactionOutbox, properties.getOutbox(), submitter, testee);
     return dispatcher;
 
   }

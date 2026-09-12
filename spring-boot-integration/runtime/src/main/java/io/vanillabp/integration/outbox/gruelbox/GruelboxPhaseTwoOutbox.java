@@ -124,6 +124,79 @@ public class GruelboxPhaseTwoOutbox implements PhaseTwoOutbox {
 
   }
 
+  /**
+   * When gruelbox' next flush has something to do, which is what its dispatcher waits for.
+   * <p>
+   * Both halves of a flush read the same column, because gruelbox keeps both moments in
+   * <code>nextAttemptTime</code>: an entry waiting for its dispatch carries its next attempt
+   * there, and an entry which was dispatched carries the moment its retention runs out. What
+   * differs is the <code>processed</code> flag, and they are therefore asked as two questions
+   * instead of one: the index gruelbox creates for its own flush spans
+   * <code>(processed, blocked, nextAttemptTime)</code>, so a question naming both flags is
+   * answered from that index, while one naming only <code>blocked</code> would read the whole
+   * table - and that cost grows with everything the table ever held.
+   * <p>
+   * A BLOCKED entry is left out of both, and that is the point of the predicate: it waits for a
+   * person rather than for a clock, so a store which holds nothing else has nothing to be woken
+   * for.
+   *
+   * @return The moment of the earliest entry, or <code>null</code> where nothing is owed -
+   *         which is the answer a store without a data source gives as well, leaving its
+   *         poller on the configured cap
+   */
+  public java.time.Instant earliestDueAt() {
+
+    if ((dataSource == null) || (tableName == null)) {
+      return null;
+    }
+    final var selectEarliest = "SELECT MIN(nextAttemptTime) FROM %s WHERE processed = ? AND blocked = ?"
+        .formatted(tableName);
+    try (var connection = dataSource.getConnection()) {
+      final var nextAttempt = earliest(connection, selectEarliest, false);
+      final var retentionRunsOut = earliest(connection, selectEarliest, true);
+      if (nextAttempt == null) {
+        return retentionRunsOut;
+      }
+      if (retentionRunsOut == null) {
+        return nextAttempt;
+      }
+      return nextAttempt.isBefore(retentionRunsOut) ? nextAttempt : retentionRunsOut;
+    } catch (final java.sql.SQLException e) {
+      // the flush which follows reports the same problem with its own message, and a
+      // poller which stops asking is worse than one which asks at the cap
+      log.debug("Could not read the next attempt time of gruelbox' outbox table '{}'", tableName, e);
+      return null;
+    }
+
+  }
+
+  /**
+   * The earliest moment one of the two kinds of entry wants something.
+   *
+   * @param connection The connection to ask on
+   * @param query The aggregate over the table, taking the two flags
+   * @param processed Whether to look at the entries which were dispatched already
+   * @return The moment or <code>null</code> where there is no such entry
+   */
+  private java.time.Instant earliest(
+      final java.sql.Connection connection,
+      final String query,
+      final boolean processed) throws java.sql.SQLException {
+
+    try (var statement = connection.prepareStatement(query)) {
+      statement.setBoolean(1, processed);
+      statement.setBoolean(2, false);
+      try (var resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        final var earliest = resultSet.getTimestamp(1);
+        return earliest == null ? null : earliest.toInstant();
+      }
+    }
+
+  }
+
   @Override
   public boolean schedule(
       final PhaseTwoCall call) {

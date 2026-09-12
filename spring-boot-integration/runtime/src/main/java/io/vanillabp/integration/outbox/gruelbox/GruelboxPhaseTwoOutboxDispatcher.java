@@ -1,9 +1,5 @@
 package io.vanillabp.integration.outbox.gruelbox;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
@@ -11,6 +7,7 @@ import org.springframework.core.annotation.Order;
 import com.gruelbox.transactionoutbox.TransactionOutbox;
 
 import io.vanillabp.integration.adapter.migration.config.PhaseTwoOutboxProperties;
+import io.vanillabp.integration.adapter.migration.outbox.DueEntryPoller;
 import io.vanillabp.integration.deployment.SpringBootDeploymentService;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -18,12 +15,18 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Background processing of the gruelbox transaction outbox: right after a commit
  * gruelbox dispatches the scheduled call itself, but for crash recovery and retries a
- * fixed-delay poller calling {@link TransactionOutbox#flush()} is required. Flushing
+ * poller calling {@link TransactionOutbox#flush()} is required. Flushing
  * also deletes successfully dispatched entries whose retention threshold passed (the
  * asynchronous cleanup of the "DONE instead of delete" contract). The poller is
  * started on {@link ApplicationReadyEvent} (the first run also dispatches entries
- * left over from a previous crashed instance) and uses the poll interval configured by
- * <code>vanillabp.outbox.poll-interval</code>.
+ * left over from a previous crashed instance).
+ * <p>
+ * It does not flush on a rhythm. A flush is three database commands whether or not
+ * anything is waiting, so between two of them the poller sleeps until the moment
+ * gruelbox' own table says the next entry wants something
+ * ({@link GruelboxPhaseTwoOutbox#earliestDueAt()}), bounded by
+ * <code>vanillabp.outbox.poll-interval</code> for the one case nothing can be read from
+ * the table: work another node wrote down before it died (see {@link DueEntryPoller}).
  * <p>
  * Starting the poller is also what lets an outbox built with VanillaBP's
  * {@link GruelboxRedispatchAwareSubmitter} dispatch after a commit at all. That
@@ -52,7 +55,13 @@ public class GruelboxPhaseTwoOutboxDispatcher {
 
   private final TransactionOutbox transactionOutbox;
 
-  private final PhaseTwoOutboxProperties properties;
+  /**
+   * The store this dispatcher polls, which is what answers when the next flush has
+   * something to do. <code>null</code> for a caller which did not hand one over - the
+   * poller then keeps to the configured cap, the rhythm every application had before the
+   * sleeping was there.
+   */
+  private final GruelboxPhaseTwoOutbox outbox;
 
   /**
    * The submitter whose gate is opened when polling starts, <code>null</code> for an
@@ -60,7 +69,7 @@ public class GruelboxPhaseTwoOutboxDispatcher {
    */
   private final GruelboxRedispatchAwareSubmitter submitter;
 
-  private ScheduledExecutorService poller;
+  private final DueEntryPoller poller;
 
   /**
    * Polls an outbox which dispatches right after a commit, whoever built it. Use the
@@ -74,7 +83,7 @@ public class GruelboxPhaseTwoOutboxDispatcher {
       final TransactionOutbox transactionOutbox,
       final PhaseTwoOutboxProperties properties) {
 
-    this(transactionOutbox, properties, null);
+    this(transactionOutbox, properties, null, null);
 
   }
 
@@ -87,18 +96,34 @@ public class GruelboxPhaseTwoOutboxDispatcher {
    * @param transactionOutbox The outbox to poll
    * @param properties The bound <code>vanillabp.outbox</code> section
    * @param submitter The submitter the outbox was built with
+   * @param outbox The store, asked when the next flush has something to do
    */
   public GruelboxPhaseTwoOutboxDispatcher(
       final TransactionOutbox transactionOutbox,
       final PhaseTwoOutboxProperties properties,
-      final GruelboxRedispatchAwareSubmitter submitter) {
+      final GruelboxRedispatchAwareSubmitter submitter,
+      final GruelboxPhaseTwoOutbox outbox) {
 
     this.transactionOutbox = transactionOutbox;
-    this.properties = properties;
     this.submitter = submitter;
+    this.outbox = outbox;
+    this.poller = new DueEntryPoller(
+        "vanillabp-outbox", properties.getPollInterval(), this::flush, this::earliestDueAt);
     if (submitter != null) {
       submitter.holdBackUntilDispatchingStarted();
     }
+
+  }
+
+  /**
+   * When the next flush has something to do, or <code>null</code> where the store cannot
+   * say.
+   *
+   * @return The moment of the earliest entry gruelbox still owes something to
+   */
+  private java.time.Instant earliestDueAt() {
+
+    return outbox == null ? null : outbox.earliestDueAt();
 
   }
 
@@ -120,26 +145,14 @@ public class GruelboxPhaseTwoOutboxDispatcher {
     if (submitter != null) {
       submitter.dispatchingStarted();
     }
-    poller = Executors.newSingleThreadScheduledExecutor(runnable -> {
-      final var thread = new Thread(runnable, "vanillabp-outbox");
-      thread.setDaemon(true);
-      return thread;
-    });
-    poller.scheduleWithFixedDelay(
-        this::flush,
-        0,
-        properties.getPollInterval().toMillis(),
-        TimeUnit.MILLISECONDS);
+    poller.start();
 
   }
 
   @PreDestroy
   public void stopPolling() {
 
-    if (poller != null) {
-      poller.shutdown();
-      poller = null;
-    }
+    poller.stop();
 
   }
 

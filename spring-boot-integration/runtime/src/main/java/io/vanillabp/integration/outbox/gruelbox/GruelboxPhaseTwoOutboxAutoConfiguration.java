@@ -297,6 +297,8 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
    *          outbox works in contexts without the full VanillaBP auto-configuration)
    * @param submitter The submitter the outbox was built with, held back until this
    *          dispatcher starts polling
+   * @param outbox The store, asked when the next flush has something to do so the poller
+   *          can sleep until then
    * @return The dispatcher polling the outbox for recovery, retries and retention
    *         cleanup (private single-thread executor - no
    *         {@link org.springframework.scheduling.TaskScheduler} involved)
@@ -305,9 +307,11 @@ public class GruelboxPhaseTwoOutboxAutoConfiguration {
   public GruelboxPhaseTwoOutboxDispatcher vanillaBpGruelboxPhaseTwoOutboxDispatcher(
       @Qualifier(DEFAULT_TRANSACTION_OUTBOX_BEAN_NAME) final TransactionOutbox transactionOutbox,
       final VanillaBpConfigurationProperties vanillaBpProperties,
-      @Qualifier(DEFAULT_SUBMITTER_BEAN_NAME) final GruelboxRedispatchAwareSubmitter submitter) {
+      @Qualifier(DEFAULT_SUBMITTER_BEAN_NAME) final GruelboxRedispatchAwareSubmitter submitter,
+      @Qualifier(DEFAULT_OUTBOX_BEAN_NAME) final GruelboxPhaseTwoOutbox outbox) {
 
-    return new GruelboxPhaseTwoOutboxDispatcher(transactionOutbox, vanillaBpProperties.getOutbox(), submitter);
+    return new GruelboxPhaseTwoOutboxDispatcher(
+        transactionOutbox, vanillaBpProperties.getOutbox(), submitter, outbox);
 
   }
 

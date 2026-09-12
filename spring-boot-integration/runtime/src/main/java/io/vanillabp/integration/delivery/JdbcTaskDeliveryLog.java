@@ -87,6 +87,7 @@ public class JdbcTaskDeliveryLog implements TaskDeliveryLog, JdbcConnectionAcces
   public void stillOpen(
       final String deliveryKey) {
 
+    retentionCleanup.aDeliveryWasRecorded();
     store.stillOpen(deliveryKey);
 
   }
@@ -119,6 +120,9 @@ public class JdbcTaskDeliveryLog implements TaskDeliveryLog, JdbcConnectionAcces
               transaction persisting the workflow aggregate - a record committed on its own would \
               skip the @WorkflowTask method of a redelivery although nothing was persisted.""");
     }
+    // what gives the hourly cleanup something to do: a store nobody wrote to has nothing
+    // left to delete which an earlier run did not already delete
+    retentionCleanup.aDeliveryWasRecorded();
     return store.record(delivery);
 
   }

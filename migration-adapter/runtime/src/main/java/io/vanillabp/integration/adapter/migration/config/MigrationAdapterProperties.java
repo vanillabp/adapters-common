@@ -455,6 +455,76 @@ public class MigrationAdapterProperties extends AdaptersConfigurationProperties 
   }
 
   /**
+   * Says what still keeps the database awake, for an application which moved
+   * <code>vanillabp.outbox.poll-interval</code> away from its default and therefore asked
+   * the outbox to sleep. Promising silence would be the easy message and the wrong one: a
+   * developer who switches this on watches their database next, and every poller they do
+   * not hear about from here they have to find themselves.
+   * <p>
+   * The trigger is "differs from the default" rather than "was written down", because a
+   * bound property cannot tell those apart and the case worth a message is the one where
+   * somebody moved the number.
+   */
+  private void reportWhatStaysAwake() {
+
+    final var pollInterval = outbox == null
+        ? PhaseTwoOutboxProperties.DEFAULT_POLL_INTERVAL
+        : outbox.getPollInterval();
+    if (PhaseTwoOutboxProperties.DEFAULT_POLL_INTERVAL.equals(pollInterval)) {
+      return;
+    }
+    final var stillAwake = new StringBuilder(
+        WHAT_STAYS_AWAKE_ALWAYS.formatted(PREFIX, MetricsProperties.GAUGE_CACHE_PROPERTY));
+    adapterTypes()
+        .entrySet()
+        .stream()
+        .filter(adapter -> CAMUNDA_7_ADAPTER_TYPE.equals(adapter.getValue()))
+        .map(Map.Entry::getKey)
+        .sorted()
+        .forEach(adapterId -> stillAwake.append(WHAT_STAYS_AWAKE_ON_CAMUNDA_7.formatted(adapterId)));
+    logger
+        .info(
+            "'{}.outbox.poll-interval' is {} instead of the default {}, so an outbox sleeps until "
+                + "its next entry is due and an application with nothing to do sends it no "
+                + "statement at all. What is still awake:{}",
+            PREFIX,
+            pollInterval,
+            PhaseTwoOutboxProperties.DEFAULT_POLL_INTERVAL,
+            stillAwake);
+
+  }
+
+  /**
+   * The type of the Camunda 7 adapter. Named here because the engine behind that adapter
+   * brings timers of its own which VanillaBP neither starts nor stops, and a message about
+   * a quiet database which leaves them out is worse than no message.
+   */
+  private static final String CAMUNDA_7_ADAPTER_TYPE = "camunda7";
+
+  /**
+   * The pollers which are there whatever BPMS an application runs against.
+   */
+  private static final String WHAT_STAYS_AWAKE_ALWAYS = """
+
+      - the retention cleanup of the task-delivery records looks once per hour, and only \
+      after a delivery was recorded, so an application which records nothing does not wake it
+      - the gauge of the entries waiting in an outbox ('%s.outbox.pending') counts them while \
+      your monitoring scrapes, at most once per '%s', so a dashboard somebody left open keeps \
+      that one statement going
+      - what an adapter does to find work for your handlers is that adapter's own business, \
+      and its documentation is where the remaining traffic is explained""";
+
+  /**
+   * What an application with a Camunda 7 adapter is told on top, with the numbers the
+   * engine defaults to.
+   */
+  private static final String WHAT_STAYS_AWAKE_ON_CAMUNDA_7 = """
+
+      - the Camunda 7 engine of adapter '%s' acquires jobs every 5 to 60 seconds and writes \
+      its own metrics every 900 seconds; both are the engine's timers, and that adapter's \
+      documentation says what to set to stop them""";
+
+  /**
    * What an installation which moved the outbox retention and nothing else is told - the
    * upgrade case, since this number used to govern both windows.
    */
@@ -1324,6 +1394,7 @@ public class MigrationAdapterProperties extends AdaptersConfigurationProperties 
     metrics.validate();
     validateMaxTaskAge();
     reportRetentionSplit();
+    reportWhatStaysAwake();
 
     if (knownWorkflowModuleIds.isEmpty()) {
       throw new IllegalStateException("No workflow-modules where given!");
