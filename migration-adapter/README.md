@@ -1563,6 +1563,33 @@ mid-dispatch therefore does not leave the long distance of an attempt nobody mad
 `PhaseTwoOutboxPropertiesTest#theBackoffGrowsAndIsCapped` pins the sequence and
 `#theAttemptBudgetSpansHours` the four hours.
 
+**What a quiet application costs, and why the poller sleeps.** A workflow application spends
+most of its life waiting in a timer, and the pollers used to ask anyway: one select plus one
+delete per store every ten seconds, 8640 turns a day whose answer was known. So the rhythm is
+gone. `DueEntryPoller` runs a store's poll, asks that store when the earliest entry it still
+owes something to is due, and sleeps until exactly that moment. An entry due in four minutes is
+dispatched in four minutes rather than on the next tick, and a store which owes nothing is left
+alone. The question each store answers is its own due-entry select with the time bound dropped,
+plus the moment the oldest dispatched entry may be deleted, so one wake-up covers the dispatch
+and the retention; gruelbox answers both with one query because it keeps both moments in
+`nextAttemptTime`. A BLOCKED entry is in neither set - it waits for a person rather than for a
+clock.
+
+`vanillabp.outbox.poll-interval` is the cap on that sleep, ten seconds by default, which is the
+rhythm every application had before. It exists for work a node wrote down before it went away,
+because nothing tells a sleeping node about another node's row; raising it is what buys the
+saving, and lowering it back to seconds gives the saving away without buying anything else.
+Decision 41 carries the reasoning, including why no notification travels between the nodes and
+why a database notification was rejected. An application which moves the cap is told at startup
+what else still keeps its database awake, which `WhatStaysAwakeTest` pins, and what a quiet
+application costs is MEASURED per store by the `OutboxSleepsWhileNothingIsDue` tests rather
+than guessed from a clock: connections taken out of the pool on the two JDBC stores, commands
+sent by the driver on the two MongoDB ones.
+
+The retention cleanup of the task-delivery records answers the same question differently, and
+decision 43 says why: it keeps its hourly thread and runs only where a delivery was recorded
+since the last run, because an application which records nothing grows nothing to delete.
+
 **Blocking releases the deduplication key.** An entry which is blocked keeps everything else it
 has, but its `DEDUP_KEY` (MongoDB: `dedupKey`) is replaced by the entry's own id, exactly as a
 dispatched entry replaces it. Without that, a blocked entry silenced the repetition of the very

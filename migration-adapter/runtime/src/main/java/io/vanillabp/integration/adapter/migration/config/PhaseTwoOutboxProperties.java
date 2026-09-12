@@ -29,7 +29,7 @@ public class PhaseTwoOutboxProperties {
    * at its due time however long this is, and an application waiting in a timer issues no
    * database command at all. What the cap covers is the one thing a sleeping node cannot
    * see: work a node wrote down and then DIED before dispatching, which nobody is waiting
-   * for a notification about (decision 41 in the repository's DECISIONS.md). Raising it is
+   * for a notification about (decision 42 in the repository's DECISIONS.md). Raising it is
    * how an application buys the saving; lowering it back to seconds gives the saving away
    * and buys nothing else.
    * <p>

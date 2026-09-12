@@ -1186,3 +1186,84 @@ another module's plain id.
 `CollidingProcessIdsAcrossWorkflowModulesTest` holds all of it, both deployment orders included, and
 `StartupQuestionCostTest` holds that the adapter is asked once per pair of workflow modules rather
 than once per process, which is decision 19 applied to a question the core puts to an adapter.
+### 42. A poller sleeps until its store says it owes something
+
+The outbox pollers ran on a fixed delay, ten seconds per store, and every turn was a select plus a
+delete whether or not anything was waiting. A workflow application spends most of its life waiting
+in a timer, so most of those 8640 turns a day asked a question whose answer was known. On a database
+billed by active use that is a bill for doing nothing.
+
+The interval was a guess, and it was wrong in both directions. Too often for an application with
+nothing to do, and no help at all for an entry which became due a millisecond after the last turn:
+that one waited the full interval whatever the number was.
+
+So the rhythm is gone. Every store answers one question after each poll - when is the earliest
+moment I owe something - and the poller sleeps until exactly that moment. An entry due in four
+minutes is dispatched in four minutes rather than on the next tick, and a store which owes nothing
+is left alone. The question is the due-entry select with its time bound dropped, which is what keeps
+the two in step: an entry the question does not see is an entry the select would not pick up either.
+A BLOCKED entry is in neither, and that is the point of the predicate. It waits for a person rather
+than for a clock, so a store holding nothing else has nothing to be woken for. The moment the oldest
+dispatched entry may be deleted is part of the answer as well, so the wake-up which deletes is the
+same wake-up which dispatches. gruelbox answers both halves with one question, because it keeps both
+moments in the same column.
+
+The notification after a commit stays what it was, the fast path, and it does more than before: it
+pulls a sleep forward to the moment the entry it planned is due. An entry due now is dispatched now,
+which is what every VanillaBP application always did, and an entry due in an hour shortens nothing.
+
+**Nothing wakes the other nodes of a cluster, and that is deliberate.** Every node is equivalent,
+and the node which writes an entry is by definition awake: its own post-commit hook dispatches it.
+A sleeping node which never learns about that write loses nothing, because nobody was waiting for
+that node in particular. So the cluster needs no notification between its nodes, and a database
+notification such as Postgres `LISTEN/NOTIFY` buys nothing here while costing the portability this
+platform promises - it exists on one of the supported databases and has no equivalent on MongoDB at
+all. It is named here so nobody reopens it by accident.
+
+What does need an answer is a node which GOES AWAY between writing work down and doing it: an entry
+it inserted or a retry it rescheduled, while every other node sleeps until a time computed before
+that entry existed. Graceful or not makes no difference, since a shutdown stops the poller and
+leaves what it had not dispatched. `vanillabp.outbox.poll-interval` is the cap on the sleep which
+covers that, and it covers nothing else. Ten seconds by default, the rhythm every application polled
+at before, so one which sets nothing keeps the timing it had and the saving is bought by raising the
+cap. **A reader who takes the cap for a cross-node notification sets it to seconds and gives the
+whole saving away**, which is why the property's name is explained wherever it appears.
+
+A shared election cache looked like the exact signal and is not used. The membership change it sees
+lives in the repository of that cache rather than here, `WorkflowAdapterCache` has no method which
+could carry it, and Hazelcast reports a node which died rather than left only after its own
+heartbeat timeout, a minute by default. A signal which arrives after a minute is not better than a
+cap an operator sets to a minute, and it would tie the platform to a dependency an application does
+not have to bring. Where somebody builds it later, the cap is what it replaces.
+
+`OutboxSleepsWhileNothingIsDueTest` of each store measures what a quiet application costs, which is
+the claim that matters; that the poller sleeps is not the same claim and is worth less. It counts
+connections on the two JDBC stores and commands on the two MongoDB ones, because a connection is the
+claim from below - none taken is none used - and MongoDB's driver reports every command it sends.
+Each of those tests first asserts that its counter sees traffic at all, since a counter which
+silently counts nothing would turn the test green.
+
+### 43. Housekeeping runs where there is something to house-keep
+
+The retention cleanup of the task-delivery records ran hourly per store and deleted mostly nothing.
+An application asleep for a day was woken twenty-four times for a delete which found nothing to
+delete, which is the same defect as entry 42's interval in a cheaper place.
+
+A run now happens only where a delivery was recorded since the last one. The records of that store
+come into being when the application does work, so an application which does no work grows nothing
+to delete and its database sees no statement from here.
+
+What that leaves behind is the last batch before an application went quiet: records kept until it is
+used again, or until it restarts, because the run at startup stays. That residual costs disk and
+never correctness. Keeping a delivery record LONGER is the safe side of the window entry 24 splits
+out - a record which is still there answers a redelivery from the record, and a record which is gone
+runs the `@WorkflowTask` method a second time.
+
+The alternative was to ask first whether anything is old enough and to skip the transaction where
+nothing is. It was rejected because the question is itself a statement, one per hour per store, which
+is the traffic the delete already was. A cheaper question buys nothing where the answer costs as much
+as the act.
+
+The outbox's own retention delete is NOT gated this way. It rides the poller of entry 42, whose
+wake-up times already contain the moment the oldest dispatched entry may go, so that one is paid for
+by a wake-up which was going to happen anyway.

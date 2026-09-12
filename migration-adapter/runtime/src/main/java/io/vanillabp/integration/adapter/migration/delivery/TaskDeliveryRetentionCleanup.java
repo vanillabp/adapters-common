@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  * application waiting in a timer grows no garbage and its database sees no statement from
  * here. What that leaves behind is the last batch before an application went quiet, kept
  * until it is used again or until it restarts, and keeping a record LONGER is the safe
- * side of the window it guards (decision 42 in the repository's DECISIONS.md).
+ * side of the window it guards (decision 43 in the repository's DECISIONS.md).
  */
 @Slf4j
 public class TaskDeliveryRetentionCleanup {

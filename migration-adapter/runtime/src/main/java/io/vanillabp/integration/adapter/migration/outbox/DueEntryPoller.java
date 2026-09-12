@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
  * therefore shortens an hour of sleep, and an entry due in an hour does not shorten
  * anything.
  * <p>
- * Why nothing wakes the OTHER nodes of a cluster, and what the cap is for, is decision 41
+ * Why nothing wakes the OTHER nodes of a cluster, and what the cap is for, is decision 42
  * in the repository's DECISIONS.md.
  */
 @Slf4j
