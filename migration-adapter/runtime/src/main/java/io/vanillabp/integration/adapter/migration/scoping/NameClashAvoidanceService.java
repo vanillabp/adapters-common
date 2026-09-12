@@ -50,10 +50,21 @@ import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
  * readability choice; what protects correctness is
  * {@link #validateNoCollidingProcessIds}.
  *
+ * <h2>Two workflow modules under one identifier</h2>
+ *
+ * A deployment is per workflow module, so {@link #validateNoCollidingProcessIds} is handed
+ * one module at a time and the clash it exists for lives between two of them. What spans
+ * them is {@link #moduleDeclaringScopedIdentifier}, the map the sibling reports already
+ * fill, so the caller's collection may stay as narrow as its deployment is. The mode then
+ * decides what an equal pair of strings means: under {@link NameClashAvoidance#BY_ADAPTER}
+ * it is the BPMS which keeps the modules apart, the core cannot see its scopes, and the
+ * adapter is asked
+ * ({@link AdapterDeploymentService#ownIsolationSeparatesWorkflowModules}).
+ *
  * <h2>What the BPMS already held</h2>
  *
- * {@link #validateNoCollidingProcessIds} compares what is being deployed against itself,
- * which leaves out the identifiers somebody else put into the same BPMS earlier. Asking
+ * The checks above compare what this application deploys against itself, which leaves out
+ * the identifiers somebody else put into the same BPMS earlier. Asking
  * about those is the adapter's work, because only it can query its BPMS, and
  * {@link #reportIdentifiersTheBpmsAlreadyHolds} is where the answer arrives. The core
  * composes the scoped form the adapter's plain identifiers end up as, resolves the mode
@@ -92,12 +103,31 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
    * up carrying the same name. The FIRST module which declared it keeps the entry, because
    * what a message needs is one other side to name, and a third module colliding is then
    * reported against the same one.
+   * <p>
+   * Three checks read this one map, and the reason is that all three ask the same question:
+   * which workflow module already reaches the BPMS under this form. A deployment is per
+   * workflow module, so none of them can answer that out of the one module it was handed;
+   * what spans the modules is the boot, and the boot is what this map outlives a single call
+   * for. {@link #validateNoCollidingProcessIds} therefore keeps its BPMN process ids here
+   * under {@link ScopedIdentifierKind#BPMN_PROCESS_ID} rather than in a memory of its own,
+   * and the kinds stay apart because the key carries the kind.
    */
   private final Map<String, Declaration> moduleDeclaringScopedIdentifier = new ConcurrentHashMap<>();
 
   /**
+   * What the adapter answered about two workflow modules of one adapter id, so a module with
+   * two hundred processes colliding asks once instead of two hundred times. The answer is
+   * read off configuration which does not change while an application boots, which is what
+   * lets it be kept at all (decision 19 in the repository's DECISIONS.md bounds what a start
+   * may ask).
+   */
+  private final Map<String, Boolean> isolationAnswers = new ConcurrentHashMap<>();
+
+  /**
    * Where a scoped identifier was read: the workflow module it belongs to, and the BPMN
-   * process for a kind which is scoped per process.
+   * process for a kind which is scoped per process. For a BPMN process id the process is
+   * the identifier itself, which is what lets the collision check tell a process reported
+   * twice from two processes sharing one form.
    *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process, or <code>null</code> for a module-wide name
@@ -511,42 +541,199 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
     if (deployedProcesses == null) {
       return;
     }
-    final var byScopedId = new LinkedHashMap<String, DeployedProcess>();
-    final var collisions = new LinkedHashMap<String, LinkedList<DeployedProcess>>();
+    final var collisions = new LinkedList<String>();
+    final var fixes = new LinkedHashSet<String>();
     for (final var deployed : deployedProcesses) {
-      final var scoped = scopedProcessId(deployed.workflowModuleId(), deployed.bpmnProcessId(), adapterId);
-      final var previous = byScopedId.putIfAbsent(scoped, deployed);
-      if (previous == null) {
+      if ((deployed == null) || (deployed.workflowModuleId() == null) || (deployed.bpmnProcessId() == null)) {
         continue;
       }
-      if (previous.equals(deployed)) {
-        continue; // the same process reported twice (several files, several adapters)
+      final var scopedForm = scopedProcessId(deployed.workflowModuleId(), deployed.bpmnProcessId(), adapterId);
+      final var beingDeployed = new Declaration(deployed.workflowModuleId(), deployed.bpmnProcessId());
+      final var alreadyThere = moduleDeclaringScopedIdentifier
+          .putIfAbsent(
+              declarationKey(adapterId, ScopedIdentifierKind.BPMN_PROCESS_ID, scopedForm),
+              beingDeployed);
+      if ((alreadyThere == null) || alreadyThere.equals(beingDeployed)) {
+        // the first process reaching the BPMS under that form, or the same process handed
+        // over twice, which one BPMN file holding several processes and a module deployed
+        // to several adapters both produce
+        continue;
       }
-      collisions
-          .computeIfAbsent(scoped, key -> new LinkedList<>(java.util.List.of(previous)))
-          .add(deployed);
+      if (somethingSeparates(adapterId, alreadyThere, beingDeployed)) {
+        continue;
+      }
+      fixes.add(howToSeparateProcesses(adapterId, alreadyThere, beingDeployed));
+      collisions.add(bothSidesOfTheClash(adapterId, alreadyThere, beingDeployed, scopedForm));
     }
     if (collisions.isEmpty()) {
       return;
     }
-    final var message = new StringBuilder(
-        ("Different BPMN processes deployed to adapter '%s' end up under the SAME identifier! "
-            + "Rename one of the colliding workflow modules or BPMN processes:")
-            .formatted(adapterId));
-    collisions.forEach((
-        scoped,
-        colliding) -> message.append(
-            """
+    throw new IllegalStateException(
+        """
+            Two BPMN processes deployed to adapter '%s' reach the BPMS under the SAME identifier! \
+            The BPMS keeps one definition under that identifier and loses the other, so one of the \
+            two workflow modules would run on a model nobody deployed.
+            What collides:%s
+            What to change:%s"""
+            .formatted(adapterId, asBullets(collisions), asBullets(fixes)));
 
-                - '%s' is produced by %s"""
-                .formatted(
-                    scoped,
-                    colliding
-                        .stream()
-                        .map(process -> "BPMN process '%s' of workflow module '%s'"
-                            .formatted(process.bpmnProcessId(), process.workflowModuleId()))
-                        .collect(Collectors.joining(" and ")))));
-    throw new IllegalStateException(message.toString());
+  }
+
+  /**
+   * Both sides of one collision, each with the mode and the property key which produced its
+   * form: a mixed configuration is what makes two plain ids meet, and a reader who gets one
+   * mode for both sides goes looking for a line which does not decide anything.
+   */
+  private String bothSidesOfTheClash(
+      final String adapterId,
+      final Declaration oneSide,
+      final Declaration otherSide,
+      final String scopedForm) {
+
+    return """
+        BPMN process '%s' of workflow module '%s' (%s) and BPMN process '%s' of workflow module \
+        '%s' (%s) both reach the BPMS as '%s'"""
+        .formatted(
+            oneSide.bpmnProcessId(),
+            oneSide.workflowModuleId(),
+            modeClauseOf(adapterId, oneSide),
+            otherSide.bpmnProcessId(),
+            otherSide.workflowModuleId(),
+            modeClauseOf(adapterId, otherSide),
+            scopedForm);
+
+  }
+
+  private String modeClauseOf(
+      final String adapterId,
+      final Declaration side) {
+
+    return "mode '%s', %s"
+        .formatted(
+            nameOf(modeFor(side.workflowModuleId(), side.bpmnProcessId(), adapterId)),
+            whereTheModeComesFrom(side.workflowModuleId(), side.bpmnProcessId(), adapterId));
+
+  }
+
+  /**
+   * Whether anything keeps two BPMN processes apart which reach the BPMS under one
+   * identifier. The answer is the whole difference between this check repairing a blind spot
+   * and this check refusing applications which are correct: under
+   * {@link NameClashAvoidance#BY_ADAPTER} the scoped form is the plain one, so two workflow
+   * modules which a tenant keeps apart perfectly well arrive here with two equal strings.
+   */
+  private boolean somethingSeparates(
+      final String adapterId,
+      final Declaration oneSide,
+      final Declaration otherSide) {
+
+    if (oneSide.workflowModuleId().equals(otherSide.workflowModuleId())) {
+      // what a BPMS isolates is a workflow module, so inside one module there is nothing
+      // left which could tell two processes apart
+      return false;
+    }
+    final var oneMode = modeFor(oneSide.workflowModuleId(), oneSide.bpmnProcessId(), adapterId);
+    final var otherMode = modeFor(otherSide.workflowModuleId(), otherSide.bpmnProcessId(), adapterId);
+    if ((oneMode != NameClashAvoidance.BY_ADAPTER) && (otherMode != NameClashAvoidance.BY_ADAPTER)) {
+      // 'use-prefix' means this service composed both strings itself and 'none' means it
+      // composed neither: either way the two equal strings are the whole answer, and a mix
+      // of the two modes is how one module's prefixed form meets another's plain id
+      return false;
+    }
+    return ownIsolationSeparates(adapterId, oneSide.workflowModuleId(), otherSide.workflowModuleId());
+
+  }
+
+  /**
+   * What the adapter says about the two workflow modules, asked once per pair. An adapter
+   * this service does not know answers like one without isolation, which is the refusing
+   * side: a platform which passes no deployment services is a test, and a test which means
+   * to be separated says so by answering.
+   */
+  private boolean ownIsolationSeparates(
+      final String adapterId,
+      final String oneWorkflowModuleId,
+      final String anotherWorkflowModuleId) {
+
+    // the two ids sorted, so the answer is the same one whichever module deploys first and
+    // the adapter is asked once rather than once per order
+    final var first = oneWorkflowModuleId.compareTo(anotherWorkflowModuleId) <= 0
+        ? oneWorkflowModuleId
+        : anotherWorkflowModuleId;
+    final var second = first.equals(oneWorkflowModuleId)
+        ? anotherWorkflowModuleId
+        : oneWorkflowModuleId;
+    return isolationAnswers
+        .computeIfAbsent(
+            "%s|%s|%s".formatted(adapterId, first, second),
+            key -> {
+              final var deploymentService = deploymentServiceOf(adapterId);
+              return (deploymentService != null) && deploymentService.ownIsolationSeparatesWorkflowModules(first,
+                  second);
+            });
+
+  }
+
+  /**
+   * What frees the identifier, which differs per mode and differs again where both processes
+   * belong to one workflow module: naming a property which changes nothing for that case
+   * sends the developer after the wrong line.
+   */
+  private String howToSeparateProcesses(
+      final String adapterId,
+      final Declaration oneSide,
+      final Declaration otherSide) {
+
+    if (oneSide.workflowModuleId().equals(otherSide.workflowModuleId())) {
+      return """
+          inside workflow module '%s' only a rename helps, because both processes are scoped \
+          by that module: rename BPMN process '%s' or '%s'"""
+          .formatted(oneSide.workflowModuleId(), oneSide.bpmnProcessId(), otherSide.bpmnProcessId());
+    }
+    final var modes = new LinkedHashSet<NameClashAvoidance>();
+    modes.add(modeFor(oneSide.workflowModuleId(), oneSide.bpmnProcessId(), adapterId));
+    modes.add(modeFor(otherSide.workflowModuleId(), otherSide.bpmnProcessId(), adapterId));
+    return modes
+        .stream()
+        .map(mode -> howToSeparateModules(mode, adapterId, oneSide.workflowModuleId(), otherSide.workflowModuleId()))
+        .collect(Collectors.joining("; or "));
+
+  }
+
+  private static String howToSeparateModules(
+      final NameClashAvoidance mode,
+      final String adapterId,
+      final String oneWorkflowModuleId,
+      final String anotherWorkflowModuleId) {
+
+    return switch (mode) {
+      case USE_PREFIX -> """
+          where the mode is 'use-prefix': the prefix carries the workflow module id already, so \
+          it is the composition which is ambiguous. Rename workflow module '%s' or '%s', or \
+          rename one of the two BPMN processes"""
+          .formatted(oneWorkflowModuleId, anotherWorkflowModuleId);
+      case NONE -> """
+          where the mode is 'none': nothing is scoped, so two workflow modules using one BPMN \
+          process id share the definition. Put the module id in front of it with \
+          'vanillabp.adapters.%s.name-clash-avoidance: use-prefix', let the BPMS keep the \
+          modules apart with 'vanillabp.adapters.%s.name-clash-avoidance: by-adapter', or rename \
+          one of the two BPMN processes"""
+          .formatted(adapterId, adapterId);
+      case BY_ADAPTER -> """
+          where the mode is 'by-adapter': adapter '%s' says its BPMS would deploy workflow \
+          module '%s' and workflow module '%s' into ONE scope, so its isolation separates \
+          nothing here. Give the two modules scopes of their own - where the adapter uses a \
+          tenant for it, that is 'vanillabp.adapters.%s.tenant-id', which may be set per \
+          workflow module (vanillabp.workflow-modules.<module>.adapters.%s.tenant-id) - or \
+          switch to 'vanillabp.adapters.%s.name-clash-avoidance: use-prefix'"""
+          .formatted(
+              adapterId,
+              oneWorkflowModuleId,
+              anotherWorkflowModuleId,
+              adapterId,
+              adapterId,
+              adapterId);
+    };
 
   }
 
