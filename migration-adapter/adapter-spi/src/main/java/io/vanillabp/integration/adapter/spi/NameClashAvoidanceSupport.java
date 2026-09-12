@@ -348,15 +348,39 @@ public interface NameClashAvoidanceSupport {
       String bpmsDescription);
 
   /**
-   * Fails with a guiding message if two of the given (workflow module, BPMN process
-   * ID) pairs produce the SAME scoped process ID - the only way prefixing could
-   * mix two workflows up. Called by the adapter once it knows the deployed
-   * processes (the BPMN has to be read first).
+   * Fails with a guiding message where two (workflow module, BPMN process ID) pairs of
+   * this application reach the BPMS under the SAME identifier. That is the one clash which
+   * loses a model: the BPMS keeps one definition under the identifier and not the other,
+   * so one of the two workflow modules runs on a model nobody deployed. Called by the
+   * adapter once it knows the deployed processes of the workflow module it is deploying
+   * (the BPMN has to be read first).
+   * <p>
+   * The core REMEMBERS what the earlier calls of this boot passed, per adapter id, so the
+   * SCOPE OF THE COLLECTION DOES NOT MATTER: hand over the processes of the workflow module
+   * being deployed and a collision with an earlier module is found all the same. Two
+   * adapter ids never see each other's processes, because two ids of one BPMS type are what
+   * a migration looks like and each deploys its own scope. Passing the same pair twice is
+   * not a collision either, which one BPMN file holding several processes needs.
+   * <p>
+   * What remembering costs is that the boot ends while the SECOND of the two modules
+   * deploys, with the first one already in the BPMS. Why a half-deployed application is the
+   * lesser evil here is decision 41 in the repository's DECISIONS.md.
+   * <p>
+   * Whether two equal identifiers are a collision at all depends on the mode. Under
+   * {@link NameClashAvoidance#USE_PREFIX} the core composed both strings itself and needs
+   * nobody else; under {@link NameClashAvoidance#NONE} nothing is scoped, so nothing
+   * separates the two sides by definition; under {@link NameClashAvoidance#BY_ADAPTER} the
+   * scoped form is the plain one and the BPMS is supposed to keep the modules apart, so the
+   * core asks the adapter
+   * ({@link AdapterDeploymentService#ownIsolationSeparatesWorkflowModules}) and refuses only
+   * where the answer is that nothing separates them.
    *
    * @param adapterId The adapter ID
-   * @param deployedProcesses The (workflow module ID, BPMN process ID) pairs
-   *          deployed to this adapter
-   * @throws IllegalStateException Naming the colliding pairs and the fix
+   * @param deployedProcesses The (workflow module ID, PLAIN BPMN process ID) pairs of the
+   *          workflow module being deployed
+   * @throws IllegalStateException Naming both workflow modules, both plain process ids, the
+   *           identifier they share, the mode which produced it and the property key which
+   *           sets that mode
    */
   void validateNoCollidingProcessIds(
       String adapterId,
