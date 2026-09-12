@@ -317,6 +317,80 @@ public class StartupQuestionCostTest {
   }
 
   /**
+   * How often the adapter is asked whether its own isolation separates two workflow modules
+   * while both of them deploy the given number of BPMN processes, all of them reaching the
+   * BPMS under one identifier each.
+   */
+  @SuppressWarnings("unchecked")
+  private static int isolationQuestionsWhileTwoModulesDeploy(
+      final int processes) {
+
+    final var adapter = (io.vanillabp.integration.adapter.spi.AdapterDeploymentService<Object, Object>) org.mockito.Mockito
+        .mock(io.vanillabp.integration.adapter.spi.AdapterDeploymentService.class);
+    org.mockito.Mockito
+        .lenient()
+        .when(adapter.getAdapterId())
+        .thenReturn("c7");
+    org.mockito.Mockito
+        .lenient()
+        .when(
+            adapter
+                .ownIsolationSeparatesWorkflowModules(
+                    org.mockito.Mockito.anyString(),
+                    org.mockito.Mockito.anyString()))
+        .thenReturn(Boolean.TRUE);
+
+    final var adapterProperties = io.vanillabp.integration.adapter.migration.config.AdapterConfigProperties
+        .ofType("camunda7");
+    adapterProperties
+        .setNameClashAvoidance(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER);
+    final var properties = io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties
+        .builder()
+        .adapters(java.util.Map.of("c7", adapterProperties))
+        .prioritizedAdapters(List.of("c7"))
+        .build();
+    properties.validateAndLink();
+    final var scoping = new NameClashAvoidanceService(properties, () -> List.of(adapter));
+
+    java.util.stream.Stream
+        .of(MODULE, "another-module")
+        .forEach(
+            workflowModuleId -> scoping
+                .validateNoCollidingProcessIds(
+                    "c7",
+                    java.util.stream.IntStream
+                        .range(0, processes)
+                        .mapToObj(
+                            number -> new io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.DeployedProcess(
+                                workflowModuleId, "Process%d".formatted(number)))
+                        .toList()));
+
+    return org.mockito.Mockito
+        .mockingDetails(adapter)
+        .getInvocations()
+        .stream()
+        .filter(invocation -> "ownIsolationSeparatesWorkflowModules".equals(invocation.getMethod().getName()))
+        .toList()
+        .size();
+
+  }
+
+  @Test
+  @DisplayName("Whether the BPMS separates two workflow modules is asked once per pair of them")
+  public void theIsolationQuestionIsAskedOncePerPairOfWorkflowModules() {
+
+    final var aSmallApplication = isolationQuestionsWhileTwoModulesDeploy(1);
+    final var aBigOne = isolationQuestionsWhileTwoModulesDeploy(200);
+
+    assertEquals(1, aSmallApplication, "two workflow modules are one pair, so one question");
+    assertEquals(
+        aSmallApplication,
+        aBigOne,
+        "a pair of workflow modules is worth one question, whatever the two deploy");
+
+  }
+
+  /**
    * How many records the given reporting wrote.
    */
   private static int whileRecording(
