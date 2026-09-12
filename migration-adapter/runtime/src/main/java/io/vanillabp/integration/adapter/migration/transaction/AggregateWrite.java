@@ -80,8 +80,10 @@ public final class AggregateWrite {
                     repeated run repeats everything the method did outside the transaction as well. \
                     Two writers appear as soon as a workflow has more than one token (e.g. a \
                     non-interrupting boundary event) or the application changes the aggregate \
-                    through its own API while the workflow runs. The wiki page 'Workflow \
-                    aggregates' describes the four ways to avoid the collision.""",
+                    through its own API while the workflow runs, and an extension writing while it \
+                    reports is a third way to get there. The wiki page 'Workflow aggregates' names \
+                    every pair of writers and the way out of each of them, in the section 'Two \
+                    writers on one aggregate'.""",
                 capitalized(operation),
                 workflowAggregateId == null
                     ? "not assigned yet"
