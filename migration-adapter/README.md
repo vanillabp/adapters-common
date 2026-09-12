@@ -687,10 +687,63 @@ invokes that only for more than one id of a type), and
 deployed processes are known. Changing the mode is a BPMS **migration**, not a
 property change — hence a differing mode makes two adapter ids of one type distinct.
 
+`validateNoCollidingProcessIds` compares one deployment against itself, which leaves
+out whatever somebody else put into the same BPMS earlier: another application's
+process id, a decision id of a module deployed years ago. Asking about those is the
+adapter's work, because only it can query its own BPMS, and
+`reportIdentifiersTheBpmsAlreadyHolds(adapterId, workflowModuleId, found)` is where the
+answer arrives. The adapter hands over PLAIN identifiers, a `ScopedIdentifierKind` per
+finding, a sentence of its own naming the holder and whether it can prove the holder is
+not an earlier deployment of this application; the core composes the scoped form, resolves
+the mode plus the property which set it, and writes one WARN per workflow module and
+adapter id listing every finding. It never throws and never logs an ERROR, because the
+deployment on the other side may belong to an application which runs correctly. An adapter
+which cannot ask its BPMS calls nothing at all.
+
+A query answers for a BPMN process id and a DMN decision id, and only where the BPMS keeps
+a repository to search (Camunda 7, Camunda 8). The other kinds are in no index, which is not
+the same as nobody being able to answer: those names live in a BPMN model, and both Camunda
+adapters already read models a BPMS hands back. A task definition is read off a model as
+well; what differs is whether it is scoped at all, which is process-local on Camunda 7 and
+cluster-wide on Camunda 8. What rules the complete answer out is the
+cost of one model read per version a BPMS holds, which grows with the years. So that question
+is asked only where a model is being read anyway, which is the third check below.
+
+Two more checks are about the workflow modules of THIS application.
+`reportIdentifiersTheModelsDeclare(adapterId, workflowModuleId, declared)` takes what the
+adapter read out of the models it deploys - it rewrites every message name, signal name,
+error code, escalation code and task definition while it scopes that model anyway, so it
+holds them for free - and the core warns where two workflow modules end up under one scoped
+form. A task definition is the worst case of the set where a BPMS subscribes to it
+cluster-wide: two modules using one job type under `none` make the worker of one fetch the
+jobs of the other. A `ModelIdentifier` therefore carries the BPMN process for a task
+definition, since those are scoped per process unless the application switched that off, and
+two processes of ONE module sharing one stays silent either way. Under
+`use-prefix` the forms differ and nothing is reported; `none` and a `by-adapter` adapter with
+one `tenant-id` for every module are the cases it catches. Under `by-adapter` the message says
+that VanillaBP cannot see whether the BPMS separates the two, because the isolation mechanism
+is the adapter's knowledge. Several processes of ONE module
+sharing a name is the scope working and stays silent. It warns rather than refusing, unlike
+the process-id check: both models stay as they are, and two modules sharing a name may be a
+design.
+
+`ProcessVersionCatalog#identifiersOfVersion` reaches the name a workflow module deployed years
+ago, read from a model the BPMS still holds, and `reportIdentifiersOfHeldVersion` holds it
+against what the other modules deploy today. `DeployedProcessVersionsCheck` asks it in the
+loop which already reads those models and already knows the workflow count per version, so it
+costs no query and no extra fetch where the engine caches parsed definitions. A held version
+of the module which still deploys the name is continuity and says nothing. The background of
+all three is decision 40 in the repository's `DECISIONS.md`.
+
 `NameClashAvoidanceServiceTest` goes through all of it: the resolution and the composition
 (`mostSpecificLevelWins`, `prefixComposesIdentifiers`, `readingBackStripsKnownPrefixOnly`),
 the adapter default (`defaultsToByAdapter`) and both guardrails
 (`byAdapterIsRejectedWithoutNativeIsolation`, `collidingProcessIdsAreReported`).
+`IdentifiersTheBpmsAlreadyHoldsTest` reads the warning about what the BPMS already held, per
+kind and per mode, `CollidingIdentifiersOfWorkflowModulesTest` the two about this
+application's own modules, `OldProcessVersionsTest` that a held version is asked in the loop
+reading its model, and `StartupQuestionCostTest` keeps each of them at one message per
+workflow module respectively per held version.
 
 ### Workflow-task processing
 

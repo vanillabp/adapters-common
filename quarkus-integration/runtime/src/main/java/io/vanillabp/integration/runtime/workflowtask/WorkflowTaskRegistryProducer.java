@@ -35,6 +35,8 @@ public class WorkflowTaskRegistryProducer {
    * @param springTransactionSupport Whether Spring's <code>&#64;Transactional</code> has
    *          an effect on this application, decided at build time
    * @param properties The VanillaBP configuration
+   * @param scoping The core's name-clash-avoidance support, which judges the identifiers of
+   *          the versions a BPMS still holds
    * @return The registry
    */
   @Produces
@@ -43,11 +45,12 @@ public class WorkflowTaskRegistryProducer {
   public WorkflowTaskRegistry workflowTaskRegistry(
       final QuarkusTransactionRunner platformTransactionRunner,
       final SpringTransactionSupport springTransactionSupport,
-      final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties) {
+      final io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties properties,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
     return new WorkflowTaskRegistry(
         platformTransactionRunner, aggregateSync, QuarkusTransactionAnnotations
-            .specs(springTransactionSupport.honored()), properties);
+            .specs(springTransactionSupport.honored()), properties, scoping);
 
   }
 

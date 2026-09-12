@@ -537,6 +537,9 @@ public class SpringBootMigrationAdapterAutoConfiguration {
    * @param aggregateSync The core's sync model - validated per registered
    *          workflow-aggregate class at startup and used to answer the
    *          shared values of an aggregate an adapter does not hold
+   * @param properties The VanillaBP configuration
+   * @param scoping The core's name-clash-avoidance support, which judges the identifiers
+   *          of the versions a BPMS still holds
    * @return The workflow-task registry
    */
   @Bean
@@ -544,11 +547,12 @@ public class SpringBootMigrationAdapterAutoConfiguration {
       final SpringTransactionRunner platformTransactionRunner,
       final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync,
       @org.springframework.beans.factory.annotation.Qualifier(
-        BEANNAME_MIGRATIONADAPERPROPERTIES) final MigrationAdapterProperties properties) {
+        BEANNAME_MIGRATIONADAPERPROPERTIES) final MigrationAdapterProperties properties,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
     return new WorkflowTaskRegistry(
         platformTransactionRunner, aggregateSync, io.vanillabp.integration.workflowtask.SpringTransactionAnnotations
-            .specs(), properties);
+            .specs(), properties, scoping);
 
   }
 

@@ -264,6 +264,66 @@ and quietly ignoring the setting is the one outcome nobody asked for. On your si
 one habit: scope on the way out, at every boundary your BPMS sees, and unscope on the way back,
 the identifiers of an inbound delivery included.
 
+One more call on the support belongs to the same subject, and this one you make after your deploy
+command returned. `validateNoCollidingProcessIds` compares what this boot deploys against itself,
+which never sees the identifier another application put into your BPMS years ago. If your BPMS can
+be asked about the identifiers it holds, ask it for the ones this workflow module is about to
+deploy and hand the hits to
+`reportIdentifiersTheBpmsAlreadyHolds(adapterId, workflowModuleId, found)`. A class of its own is
+the right size for it, holding the query and whatever you can find out about a hit, plus the one
+call from `deployResources`. If your BPMS cannot be asked, call nothing. Silence means "not asked" everywhere
+in this SPI, and there is no value for "cannot tell", because the core forms no verdict of its own
+here.
+
+Each finding is an `IdentifierHeldElsewhere`, and every part of it is yours to fill. The `kind` says
+which scoped form it is, and a `bpmnProcessId` comes with a task definition and with nothing else.
+The identifier is the PLAIN one, without your prefix and without your tenant: the core composes the
+form your BPMS sees, so the warning can name both forms plus the property which produced them.
+`heldBy` is a sentence you write, because only you know what your BPMS can say about a holder, a
+deployment name and a source on one engine, a resource name and a definition key on the next. And
+`certainlyForeign` says whether you can PROVE the holder is not an earlier deployment of this
+application. Usually you cannot, because an identifier equal to ours is matched by our own previous
+version first and no engine records which application deployed a definition, so answer `false` and
+the message says so rather than presenting your guess as a fact.
+
+Nothing about this may fail a deployment. Wrap the query so that a failure is logged at debug and
+nothing else, the way the checks around it already do, and ask once per workflow module rather than
+once per identifier where your filter takes a list. A finding is a warning on the core's side too,
+because the deployment holding the name may belong to an application which runs correctly.
+
+What your BPMS can be asked that way is a BPMN process id and a DMN decision id, if it keeps a
+repository to search. A message name, a signal name, a BPMN error code, an escalation code and a task
+definition are in no index, which does not mean nobody can answer: those names live in the model, and
+your BPMS hands its models back. Whether a task definition is scoped at all is your BPMS' business -
+process-local on Camunda 7, a cluster-wide job type on Camunda 8. What it costs is one model read per version it holds, and a start which does that
+grows slower every year the application runs, which decision 19 of this repository's DECISIONS.md
+forbids. So do not sweep the models for this. Answer the two questions below instead, where the
+reading is already paid for.
+
+The first one costs you nothing at all. While you prepare a model you scope every message name,
+signal name, error code and escalation code through `scoping.scopedIdentifier(...)`, and every task
+definition through `scoping.scopedTaskDefinition(...)` if your BPMS scopes those, so you hold all of
+them and the core holds none. Name the BPMN process on a task definition and leave it `null` on the
+rest: a task definition is scoped per process unless the application switched that off. Where your
+BPMS keeps task definitions process-local, report none of them - the core needs no flag for it. And
+where it subscribes to them cluster-wide, this is the most expensive line of the whole check: two
+workflow modules with one job type mean the worker of one fetches the jobs of the other. Hand them over per workflow module once you deployed it, with
+`reportIdentifiersTheModelsDeclare(adapterId, workflowModuleId, declared)` and one `ModelIdentifier`
+per name, PLAIN and without your prefix. The core then warns where two workflow modules of the
+application end up under one scoped form, which is the clash prefixing cannot produce and `none` and
+a single configured tenant can. Under `by-adapter` it words the line as a question, because whether
+your isolation really separates the two is yours to know and not the core's. Pass a name once per module; the same name in several of its
+processes is ordinary and the core treats it as such.
+
+The second one is `identifiersOfVersion(module, process, version)` on your `ProcessVersionCatalog`,
+beside `tasksOfVersion` and `startEventsOfVersion`: which of those names ONE version your BPMS still
+holds declares, read from the model it hands back, plain again. The core asks it in the loop which
+already reads that version's model, so on an engine caching parsed definitions it costs nothing. If
+your read goes over the wire, hold the model for the length of that version's turn and drop it
+afterwards, because the core asks several questions per version and keeps no model of its own.
+Answer `null` where you cannot read a held model, an empty collection where you read one and found
+no such name.
+
 Where you hold the support in a place it may be absent, a unit test or a helper built without a
 platform around it, do not write `scoping == null ? plain : scoping.scoped…` yourself. The same six
 methods exist as STATIC ones taking the support as their first argument

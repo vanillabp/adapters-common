@@ -2,6 +2,7 @@ package io.vanillabp.integration.adapter.migration.scoping;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +10,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.vanillabp.integration.adapter.migration.config.AdapterProperties;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
@@ -45,11 +49,24 @@ import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
  * {@link NameClashAvoidanceSupport#SEPARATOR}. The separator is therefore a
  * readability choice; what protects correctness is
  * {@link #validateNoCollidingProcessIds}.
+ *
+ * <h2>What the BPMS already held</h2>
+ *
+ * {@link #validateNoCollidingProcessIds} compares what is being deployed against itself,
+ * which leaves out the identifiers somebody else put into the same BPMS earlier. Asking
+ * about those is the adapter's work, because only it can query its BPMS, and
+ * {@link #reportIdentifiersTheBpmsAlreadyHolds} is where the answer arrives. The core
+ * composes the scoped form the adapter's plain identifiers end up as, resolves the mode
+ * which produced it and words the warning, so a developer reads our side, their side and
+ * the change which frees the name in one message. It stays a warning: the holder may be an
+ * application which runs correctly.
  * <p>
  * Why this is the one place which resolves the mode and builds the scoped form is decision 9 in the
  * repository's DECISIONS.md.
  */
 public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
+
+  private static final Logger log = LoggerFactory.getLogger(NameClashAvoidanceService.class);
 
   private final MigrationAdapterProperties properties;
 
@@ -68,6 +85,27 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
    * resolved on every runtime boundary, the WARN belongs to startup.
    */
   private final Set<String> unscopedReported = ConcurrentHashMap.newKeySet();
+
+  /**
+   * Which workflow module declares a scoped identifier, per adapter id and kind: filled
+   * while the modules are deployed and read again when a version a BPMS still holds turns
+   * up carrying the same name. The FIRST module which declared it keeps the entry, because
+   * what a message needs is one other side to name, and a third module colliding is then
+   * reported against the same one.
+   */
+  private final Map<String, Declaration> moduleDeclaringScopedIdentifier = new ConcurrentHashMap<>();
+
+  /**
+   * Where a scoped identifier was read: the workflow module it belongs to, and the BPMN
+   * process for a kind which is scoped per process.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process, or <code>null</code> for a module-wide name
+   */
+  private record Declaration(
+                             String workflowModuleId,
+                             String bpmnProcessId) {
+  }
 
   /**
    * Without the adapters' deployment services every adapter's default is
@@ -509,6 +547,453 @@ public class NameClashAvoidanceService implements NameClashAvoidanceSupport {
                             .formatted(process.bpmnProcessId(), process.workflowModuleId()))
                         .collect(Collectors.joining(" and ")))));
     throw new IllegalStateException(message.toString());
+
+  }
+
+  @Override
+  public void reportIdentifiersTheBpmsAlreadyHolds(
+      final String adapterId,
+      final String workflowModuleId,
+      final Collection<IdentifierHeldElsewhere> found) {
+
+    if (found == null) {
+      return;
+    }
+    final var holdings = found
+        .stream()
+        .filter(held -> (held != null) && (held.kind() != null) && (held.plainIdentifier() != null))
+        .toList();
+    if (holdings.isEmpty()) {
+      return;
+    }
+
+    // the fix depends on the mode, and the mode is resolved per workflow and per
+    // workflow module, so ten findings may need two sentences or one - they are
+    // collected while the findings are worded and written once each
+    final var fixes = new LinkedHashSet<String>();
+    final var describedHoldings = new LinkedList<String>();
+    for (final var held : holdings) {
+      final var processDecidingTheMode = processDecidingTheMode(held);
+      final var mode = modeFor(workflowModuleId, processDecidingTheMode, adapterId);
+      fixes.add(howToFree(mode, adapterId, workflowModuleId));
+      describedHoldings.add(describe(held, workflowModuleId, adapterId, mode));
+    }
+
+    log
+        .warn(
+            """
+                Adapter '{}' asked its BPMS which identifiers of workflow module '{}' it already \
+                holds, and got {} of them back. Both sides deploy the same name, so \
+                the BPMS alone decides which of them a start or a message reaches. \
+                This does not stop the boot: whoever holds the name may be an application which runs \
+                correctly, and ending this boot would not help it.
+                What this application deploys, and who holds it already:{}
+                What to change:{}""",
+            adapterId,
+            workflowModuleId,
+            holdings.size(),
+            asBullets(describedHoldings),
+            asBullets(fixes));
+
+  }
+
+  /**
+   * One block of the warning, so that ten findings stay readable: one line each, below
+   * the sentence introducing them.
+   */
+  private static String asBullets(
+      final Collection<String> lines) {
+
+    return lines
+        .stream()
+        .collect(Collectors.joining("\n  - ", "\n  - ", ""));
+
+  }
+
+  /**
+   * The BPMN process whose mode decides for the given finding: its own id where the
+   * finding IS a process id, the process a task definition belongs to, and none for an
+   * identifier the workflow module scopes alone.
+   */
+  private static String processDecidingTheMode(
+      final IdentifierHeldElsewhere held) {
+
+    return switch (held.kind()) {
+      case BPMN_PROCESS_ID -> held.plainIdentifier();
+      case TASK_DEFINITION -> held.bpmnProcessId();
+      case MESSAGE_NAME, SIGNAL_NAME, ERROR_CODE, ESCALATION_CODE, DMN_DECISION_ID -> null;
+    };
+
+  }
+
+  /**
+   * One finding as the warning names it: what the application calls the identifier, what
+   * the BPMS sees instead, where that form comes from, and what the adapter could find
+   * out about the holder.
+   */
+  private String describe(
+      final IdentifierHeldElsewhere held,
+      final String workflowModuleId,
+      final String adapterId,
+      final NameClashAvoidance mode) {
+
+    final var scopedForm = scopedFormOf(
+        held.kind(),
+        workflowModuleId,
+        held.bpmnProcessId(),
+        held.plainIdentifier(),
+        adapterId);
+    return """
+        %s '%s'%s, which the BPMS %s (mode '%s', %s), is already held by %s%s"""
+        .formatted(
+            kindOf(held.kind()),
+            held.plainIdentifier(),
+            (held.kind() == ScopedIdentifierKind.TASK_DEFINITION) && (held.bpmnProcessId() != null)
+                ? " of BPMN process '%s'".formatted(held.bpmnProcessId())
+                : "",
+            held.plainIdentifier().equals(scopedForm)
+                ? "sees unchanged"
+                : "sees as '%s'".formatted(scopedForm),
+            nameOf(mode),
+            whereTheModeComesFrom(workflowModuleId, processDecidingTheMode(held), adapterId),
+            (held.heldBy() == null) || held.heldBy().isBlank()
+                ? "a deployment this adapter cannot describe any further"
+                : held.heldBy(),
+            held.certainlyForeign()
+                ? ""
+                : ". VanillaBP cannot tell this from an earlier deployment of this application, so this line may be harmless");
+
+  }
+
+  /**
+   * The scoped form the BPMS sees for one identifier of one workflow module - composed
+   * here, because every caller hands over the plain identifier only.
+   */
+  private String scopedFormOf(
+      final ScopedIdentifierKind kind,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String plainIdentifier,
+      final String adapterId) {
+
+    return switch (kind) {
+      case BPMN_PROCESS_ID -> scopedProcessId(workflowModuleId, plainIdentifier, adapterId);
+      // a task definition carries its BPMN process, so a caller knowing none leaves the
+      // core with the module-wide form, which is also what an application switching the
+      // process part off deploys
+      case TASK_DEFINITION -> bpmnProcessId == null
+          ? scopedIdentifier(workflowModuleId, plainIdentifier, adapterId)
+          : scopedTaskDefinition(workflowModuleId, bpmnProcessId, plainIdentifier, adapterId);
+      // a decision is called by several processes of a module, so it is scoped by the
+      // module alone, exactly like a message or an error code
+      case MESSAGE_NAME, SIGNAL_NAME, ERROR_CODE, ESCALATION_CODE, DMN_DECISION_ID -> scopedIdentifier(
+          workflowModuleId,
+          plainIdentifier,
+          adapterId);
+    };
+
+  }
+
+  /**
+   * How the warning names a kind of identifier, in the words a developer sees in a
+   * modeller rather than in the words of the enum.
+   */
+  private static String kindOf(
+      final ScopedIdentifierKind kind) {
+
+    return switch (kind) {
+      case BPMN_PROCESS_ID -> "BPMN process id";
+      case MESSAGE_NAME -> "message name";
+      case SIGNAL_NAME -> "signal name";
+      case ERROR_CODE -> "BPMN error code";
+      case ESCALATION_CODE -> "escalation code";
+      case TASK_DEFINITION -> "task definition";
+      case DMN_DECISION_ID -> "DMN decision id";
+    };
+
+  }
+
+  /**
+   * The property key which produced the mode, so the developer edits the line which
+   * decides rather than adding a second one somewhere else.
+   */
+  private String whereTheModeComesFrom(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String adapterId) {
+
+    final var module = properties == null
+        ? null
+        : properties
+            .getWorkflowModules()
+            .get(workflowModuleId);
+    if (module != null) {
+      final var workflow = bpmnProcessId == null
+          ? null
+          : module
+              .getWorkflows()
+              .get(bpmnProcessId);
+      if ((workflow != null) && (valueOf(workflow.getAdapters(), adapterId) != null)) {
+        return "vanillabp.workflow-modules.%s.workflows.%s.adapters.%s.name-clash-avoidance"
+            .formatted(workflowModuleId, bpmnProcessId, adapterId);
+      }
+      if (valueOf(module.getAdapters(), adapterId) != null) {
+        return "vanillabp.workflow-modules.%s.adapters.%s.name-clash-avoidance".formatted(workflowModuleId, adapterId);
+      }
+    }
+    if ((properties != null) && (valueOfAdapterLevel(adapterId) != null)) {
+      return "vanillabp.adapters.%s.name-clash-avoidance".formatted(adapterId);
+    }
+    return "nothing is configured, so the default of adapter '%s' applies".formatted(adapterId);
+
+  }
+
+  /**
+   * What frees the identifier again, per mode: each mode leaves a different way out, and
+   * naming the wrong one sends the developer after a property which changes nothing.
+   */
+  private static String howToFree(
+      final NameClashAvoidance mode,
+      final String adapterId,
+      final String workflowModuleId) {
+
+    return switch (mode) {
+      case USE_PREFIX -> """
+          where the mode is 'use-prefix': the prefix carries the workflow module id already, so the \
+          other side uses the same module id. Rename workflow module '%s', or rename the identifier \
+          which clashes"""
+          .formatted(workflowModuleId);
+      case NONE -> """
+          where the mode is 'none': nothing is scoped, so every application on this BPMS sees your \
+          plain identifiers. Put the workflow module id in front of them with \
+          'vanillabp.adapters.%s.name-clash-avoidance: use-prefix', or let the BPMS keep the modules \
+          apart with 'vanillabp.adapters.%s.name-clash-avoidance: by-adapter'"""
+          .formatted(adapterId, adapterId);
+      case BY_ADAPTER -> """
+          where the mode is 'by-adapter': the BPMS is supposed to keep the modules apart, so both \
+          applications deploy into the same scope of it. Compare the scope of the two - where the \
+          adapter uses a tenant for it, that is 'vanillabp.adapters.%s.tenant-id', and two \
+          applications which name the same tenant are not kept apart by it"""
+          .formatted(adapterId);
+    };
+
+  }
+
+  @Override
+  public void reportIdentifiersTheModelsDeclare(
+      final String adapterId,
+      final String workflowModuleId,
+      final Collection<ModelIdentifier> declared) {
+
+    if ((declared == null) || (workflowModuleId == null)) {
+      return;
+    }
+    final var collisions = new LinkedList<String>();
+    final var fixes = new LinkedHashSet<String>();
+    final var modes = new LinkedHashSet<NameClashAvoidance>();
+    for (final var identifier : declared) {
+      if ((identifier == null) || (identifier.kind() == null) || (identifier.plainIdentifier() == null)) {
+        continue;
+      }
+      final var scopedForm = scopedFormOf(
+          identifier.kind(),
+          workflowModuleId,
+          identifier.bpmnProcessId(),
+          identifier.plainIdentifier(),
+          adapterId);
+      final var declaredAlready = moduleDeclaringScopedIdentifier
+          .putIfAbsent(
+              declarationKey(adapterId, identifier.kind(), scopedForm),
+              new Declaration(workflowModuleId, identifier.bpmnProcessId()));
+      if ((declaredAlready == null) || declaredAlready.workflowModuleId().equals(workflowModuleId)) {
+        // the first module declaring it, or this module declaring it in a second process -
+        // the scope of such a name IS the workflow module, so sharing it inside one is
+        // ordinary VanillaBP
+        continue;
+      }
+      final var mode = modeFor(workflowModuleId, null, adapterId);
+      modes.add(mode);
+      fixes.add(howToFree(mode, adapterId, workflowModuleId));
+      collisions
+          .add(
+              """
+                  %s '%s' of workflow module '%s'%s and of workflow module '%s'%s both reach the BPMS \
+                  as '%s' (mode '%s', %s)"""
+                  .formatted(
+                      kindOf(identifier.kind()),
+                      identifier.plainIdentifier(),
+                      declaredAlready.workflowModuleId(),
+                      processClauseOf(identifier.kind(), declaredAlready.bpmnProcessId()),
+                      workflowModuleId,
+                      processClauseOf(identifier.kind(), identifier.bpmnProcessId()),
+                      scopedForm,
+                      nameOf(mode),
+                      whereTheModeComesFrom(workflowModuleId, null, adapterId)));
+    }
+    if (collisions.isEmpty()) {
+      return;
+    }
+
+    log
+        .warn(
+            """
+                Two workflow modules of this application declare identifiers which adapter '{}' cannot \
+                keep apart, so the BPMS sees one name where the application means two. A message \
+                correlated for one module can reach a workflow of the other, and a signal broadcast \
+                reaches both. The deployment is not stopped for it, because both models stay as they \
+                are and two modules may share a name on purpose.{}
+                What collides:{}
+                What to change:{}""",
+            adapterId,
+            whatTheBpmsOwnIsolationHides(modes),
+            asBullets(collisions),
+            asBullets(fixes));
+
+  }
+
+  @Override
+  public void reportIdentifiersOfHeldVersion(
+      final String adapterId,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version,
+      final Long activeWorkflows,
+      final Collection<ModelIdentifier> declared) {
+
+    if ((declared == null) || (workflowModuleId == null)) {
+      return;
+    }
+    final var shared = new LinkedList<String>();
+    final var fixes = new LinkedHashSet<String>();
+    final var modes = new LinkedHashSet<NameClashAvoidance>();
+    for (final var identifier : declared) {
+      if ((identifier == null) || (identifier.kind() == null) || (identifier.plainIdentifier() == null)) {
+        continue;
+      }
+      final var scopedForm = scopedFormOf(
+          identifier.kind(),
+          workflowModuleId,
+          identifier.bpmnProcessId() != null
+              ? identifier.bpmnProcessId()
+              : bpmnProcessId,
+          identifier.plainIdentifier(),
+          adapterId);
+      final var deployedNow = moduleDeclaringScopedIdentifier
+          .get(declarationKey(adapterId, identifier.kind(), scopedForm));
+      if ((deployedNow == null) || deployedNow.workflowModuleId().equals(workflowModuleId)) {
+        // nothing deploys that name today, or the module which does is the one the held
+        // version belongs to, which is the same model carried forward rather than a clash
+        continue;
+      }
+      final var mode = modeFor(deployedNow.workflowModuleId(), null, adapterId);
+      modes.add(mode);
+      fixes.add(howToFree(mode, adapterId, deployedNow.workflowModuleId()));
+      shared
+          .add(
+              """
+                  %s '%s'%s, which the BPMS sees as '%s' (mode '%s', %s), is declared by workflow \
+                  module '%s'%s of this deployment as well"""
+                  .formatted(
+                      kindOf(identifier.kind()),
+                      identifier.plainIdentifier(),
+                      processClauseOf(identifier.kind(), identifier.bpmnProcessId()),
+                      scopedForm,
+                      nameOf(mode),
+                      whereTheModeComesFrom(deployedNow.workflowModuleId(), null, adapterId),
+                      deployedNow.workflowModuleId(),
+                      processClauseOf(identifier.kind(), deployedNow.bpmnProcessId())));
+    }
+    if (shared.isEmpty()) {
+      return;
+    }
+
+    log
+        .warn(
+            """
+                Version {} of BPMN process '{}' of workflow module '{}', which adapter '{}' still \
+                holds{}, declares identifiers another workflow module of this deployment uses. The BPMS \
+                cannot tell the two apart, so a message or a signal meant for one of them can reach the \
+                other. Nobody can change the held model any more, so the name has to move on the side \
+                being deployed - or the modules have to be scoped apart.{}
+                What the held version shares:{}
+                What to change:{}""",
+            version,
+            bpmnProcessId,
+            workflowModuleId,
+            adapterId,
+            workflowsRunningOn(activeWorkflows),
+            whatTheBpmsOwnIsolationHides(modes),
+            asBullets(shared),
+            asBullets(fixes));
+
+  }
+
+  /**
+   * How urgent a held version's finding is, in the words the count allows: a version
+   * carrying workflows is the one somebody has to act on, and a BPMS which cannot count
+   * them says that instead of a number.
+   */
+  private static String workflowsRunningOn(
+      final Long activeWorkflows) {
+
+    if (activeWorkflows == null) {
+      return " and which this BPMS cannot count the workflows of";
+    }
+    if (activeWorkflows == 0L) {
+      return " with no workflow left on it";
+    }
+    return activeWorkflows == 1L
+        ? " with one workflow still running on it"
+        : " with %d workflows still running on it".formatted(activeWorkflows);
+
+  }
+
+  /**
+   * What a finding cannot claim where the BPMS itself is supposed to keep the workflow
+   * modules apart: whether it really does. The core resolves the mode and composes the
+   * prefixes, but an isolation mechanism of a BPMS is the adapter's knowledge (a tenant, a
+   * namespace, a database of its own), so under that mode the line is a question rather
+   * than a verdict - and a reader who cannot see which of the two they got learns to ignore
+   * the whole message.
+   */
+  private static String whatTheBpmsOwnIsolationHides(
+      final Collection<NameClashAvoidance> modes) {
+
+    return modes.contains(NameClashAvoidance.BY_ADAPTER)
+        ? """
+             Under 'by-adapter' it is the BPMS which is supposed to keep the two apart, and \
+            VanillaBP cannot see whether it does: one scope configured for the whole adapter - a \
+            tenant id, on the Camunda adapters - puts both workflow modules into it, while a scope \
+            per workflow module keeps them apart and makes this harmless."""
+        : "";
+
+  }
+
+  /**
+   * Which BPMN process a finding names, where the kind is scoped by one: a task definition
+   * belongs to its process, and a developer looking for it needs to know which.
+   */
+  private static String processClauseOf(
+      final ScopedIdentifierKind kind,
+      final String bpmnProcessId) {
+
+    return (kind == ScopedIdentifierKind.TASK_DEFINITION) && (bpmnProcessId != null)
+        ? " (BPMN process '%s')".formatted(bpmnProcessId)
+        : "";
+
+  }
+
+  /**
+   * The key the module declaring an identifier is remembered under. The kind is part of
+   * it because a BPMS keeps the kinds apart: a message name equal to an error code
+   * collides with nothing.
+   */
+  private static String declarationKey(
+      final String adapterId,
+      final ScopedIdentifierKind kind,
+      final String scopedIdentifier) {
+
+    return "%s|%s|%s".formatted(adapterId, kind, scopedIdentifier);
 
   }
 

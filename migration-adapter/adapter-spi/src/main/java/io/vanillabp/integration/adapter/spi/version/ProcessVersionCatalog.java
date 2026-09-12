@@ -153,6 +153,49 @@ public interface ProcessVersionCatalog {
   }
 
   /**
+   * The identifiers ONE deployed version declares which the workflow module scopes - a
+   * message name, a signal name, a BPMN error code, an escalation code, and a task
+   * definition where your BPMS scopes those - read from the model the BPMS still holds. Name
+   * the BPMN process on a task definition, because those are scoped per process; leave it
+   * <code>null</code> on the rest. The names are the PLAIN ones, as the application knows
+   * them: strip your prefix the way
+   * {@link io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport#plainIdentifier}
+   * does, because the core composes the scoped forms itself.
+   * <p>
+   * What the core does with the answer is ask whether a name of a version deployed years
+   * ago is the name another workflow module uses today, which is the clash nothing else
+   * sees: a model the BPMS holds is the only place such a name still lives, and no engine
+   * keeps an index of message names. A job type of a version workflows still run on is the
+   * one of these names which is live rather than dormant, so it is worth the most here.
+   * <p>
+   * It is asked in the same loop as {@link #tasksOfVersion}, over the versions older than
+   * the one this boot deployed and not faded out by <code>outfaded-versions</code>, so the
+   * model of that version is being read anyway and this question adds no fetch on an engine
+   * which caches parsed definitions. Where reading a model means fetching it over the wire,
+   * an adapter answering several model questions per version is expected to hold that model
+   * for the length of the version's turn and drop it afterwards - the core asks each
+   * question once per version and keeps no model of its own.
+   * <p>
+   * An adapter which cannot read a held model returns <code>null</code> and the core says
+   * nothing about that version. An adapter which read the model and found no such
+   * identifier returns an empty collection.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version identifier the BPMS reported
+   * @return The identifiers that version declares, or <code>null</code> if this BPMS
+   *         cannot say
+   */
+  default java.util.Collection<io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier> identifiersOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return null;
+
+  }
+
+  /**
    * How many workflows still run on ONE deployed version - what decides whether an
    * unserved task definition of that version is a warning or a defect, and whether
    * outfading it (<code>outfaded-versions</code>) leaves workflows behind.
